@@ -1,6 +1,12 @@
+// @ts-nocheck
+// @ts-nocheck
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import enLocale from "../locales/en.json";
+import hiLocale from "../locales/hi.json";
+import mrLocale from "../locales/mr.json";
+import guLocale from "../locales/gu.json";
 import {
   Stethoscope, Mic, Send, Upload, FileText, Clock, User, Settings as SettingsIcon,
   LogOut, ShieldCheck, Globe, CheckCircle2, Circle, Home, MessageSquare,
@@ -47,6 +53,51 @@ const STRINGS = {
   gu: { welcome: "સ્વાગત છે", startInterview: "ઇન્ટરવ્યુ શરૂ કરો", continue: "ચાલુ રાખો" },
 };
 
+const LOCALES = {
+  en: enLocale,
+  hi: hiLocale,
+  mr: mrLocale,
+  gu: guLocale,
+};
+
+const STORAGE_KEY = "medikiosk_language";
+
+const translateValue = (language, key, fallback = key) => {
+  const locale = LOCALES[language] || LOCALES.en;
+  const path = key.split(".");
+  let value = locale;
+  for (const segment of path) {
+    if (value && typeof value === "object" && segment in value) {
+      value = value[segment];
+    } else {
+      value = undefined;
+      break;
+    }
+  }
+  if (typeof value === "string") return value;
+
+  let fallbackValue = LOCALES.en;
+  for (const segment of path) {
+    if (fallbackValue && typeof fallbackValue === "object" && segment in fallbackValue) {
+      fallbackValue = fallbackValue[segment];
+    } else {
+      fallbackValue = undefined;
+      break;
+    }
+  }
+  return typeof fallbackValue === "string" ? fallbackValue : fallback;
+};
+
+const getStoredLanguage = () => {
+  if (typeof window === "undefined") return "en";
+  const saved = window.localStorage.getItem(STORAGE_KEY);
+  return saved && LOCALES[saved] ? saved : "en";
+};
+
+const safeTranslate = (language, key, fallback = key) => translateValue(language || "en", key, fallback);
+
+const getLanguageLabel = (code) => LANGS.find(item => item.code === code)?.native || "English";
+
 const DEMO_USER = {
   name: "Ishwari Sharma",
   email: "ishwari.sharma@demo.in",
@@ -76,23 +127,33 @@ const TIMELINE_SEED = [
   { date: "2025", type: "Visit", title: "Previous medical record", detail: "Seasonal fever, resolved with symptomatic treatment" },
 ];
 
-const QUESTIONS = [
-  { section: "Chief Complaint", q: "Hello Ishwari. What brings you to the hospital today?", type: "text", mock: "I have chest pain since yesterday evening.", field: "chiefComplaint" },
-  { section: "History of Present Illness", q: "I understand. When did the chest pain start?", type: "quick", options: ["Today", "Yesterday", "This week", "Longer ago"], field: "onset" },
-  { section: "History of Present Illness", q: "Where exactly do you feel the pain?", type: "text", mock: "Center of my chest, slightly to the left.", field: "location" },
-  { section: "History of Present Illness", q: "How would you describe the pain?", type: "quick", options: ["Pressure", "Sharp", "Burning", "Dull", "Other"], field: "character" },
-  { section: "History of Present Illness", q: "Does the pain spread to your arm, shoulder, back or jaw?", type: "quick", options: ["Yes", "No", "Not sure"], field: "radiation" },
-  { section: "History of Present Illness", q: "What makes it better or worse?", type: "text", mock: "It feels worse when I climb stairs, better when I rest.", field: "modifying" },
-  { section: "Review of Systems", q: "Do you have difficulty breathing?", type: "quick", options: ["Yes", "No", "Sometimes"], field: "breathing" },
-  { section: "Past Medical History", q: "Do you have any known medical conditions?", type: "text", mock: "Mild hypertension, diagnosed last year.", field: "pastMedical" },
-  { section: "Medicines", q: "Are you currently taking any medicines?", type: "text", mock: "Amlodipine 5 mg once daily.", field: "medicines" },
-  { section: "Allergies", q: "Do you have any allergies?", type: "quick", options: ["No known allergies", "Yes", "Not sure"], field: "allergies" },
-  { section: "Family History", q: "Has anyone in your family had a similar condition?", type: "text", mock: "My father had a heart condition in his 50s.", field: "family" },
-  { section: "Past Surgical History", q: "Have you had any surgeries in the past?", type: "quick", options: ["Yes", "No"], field: "surgical" },
-  { section: "Personal History", q: "Do you smoke or consume alcohol?", type: "quick", options: ["Neither", "Smoke", "Alcohol", "Both"], field: "personal" },
-  { section: "Personal History", q: "How would you describe your sleep and diet lately?", type: "text", mock: "Sleep has been irregular, diet is mostly home-cooked.", field: "lifestyle" },
-  { section: "Review of Systems", q: "Anything else you'd like to add before we finish?", type: "text", mock: "No, that covers it.", field: "additional" },
+const QUESTION_DEFS = [
+  { field: "chiefComplaint", sectionKey: "questions.sections.chiefComplaint", sectionFallback: "Chief Complaint", questionKey: "questions.chiefComplaint", questionFallback: "Hello Ishwari. What brings you to the hospital today?", type: "text", mockKey: "questions.mocks.chiefComplaint", mockFallback: "I have chest pain since yesterday evening." },
+  { field: "onset", sectionKey: "questions.sections.historyIllness", sectionFallback: "History of Present Illness", questionKey: "questions.onset", questionFallback: "I understand. When did the chest pain start?", type: "quick", optionKeys: [["questions.options.today", "Today"], ["questions.options.yesterday", "Yesterday"], ["questions.options.thisWeek", "This week"], ["questions.options.longerAgo", "Longer ago"]] },
+  { field: "location", sectionKey: "questions.sections.historyIllness", sectionFallback: "History of Present Illness", questionKey: "questions.location", questionFallback: "Where exactly do you feel the pain?", type: "text", mockKey: "questions.mocks.location", mockFallback: "Center of my chest, slightly to the left." },
+  { field: "character", sectionKey: "questions.sections.historyIllness", sectionFallback: "History of Present Illness", questionKey: "questions.character", questionFallback: "How would you describe the pain?", type: "quick", optionKeys: [["questions.options.pressure", "Pressure"], ["questions.options.sharp", "Sharp"], ["questions.options.burning", "Burning"], ["questions.options.dull", "Dull"], ["questions.options.other", "Other"]] },
+  { field: "radiation", sectionKey: "questions.sections.historyIllness", sectionFallback: "History of Present Illness", questionKey: "questions.radiation", questionFallback: "Does the pain spread to your arm, shoulder, back or jaw?", type: "quick", optionKeys: [["questions.options.yes", "Yes"], ["questions.options.no", "No"], ["questions.options.notSure", "Not sure"]] },
+  { field: "modifying", sectionKey: "questions.sections.historyIllness", sectionFallback: "History of Present Illness", questionKey: "questions.modifying", questionFallback: "What makes it better or worse?", type: "text", mockKey: "questions.mocks.modifying", mockFallback: "It feels worse when I climb stairs, better when I rest." },
+  { field: "breathing", sectionKey: "questions.sections.reviewSystems", sectionFallback: "Review of Systems", questionKey: "questions.breathing", questionFallback: "Do you have difficulty breathing?", type: "quick", optionKeys: [["questions.options.yes", "Yes"], ["questions.options.no", "No"], ["questions.options.sometimes", "Sometimes"]] },
+  { field: "pastMedical", sectionKey: "questions.sections.pastMedicalHistory", sectionFallback: "Past Medical History", questionKey: "questions.pastMedical", questionFallback: "Do you have any known medical conditions?", type: "text", mockKey: "questions.mocks.pastMedical", mockFallback: "Mild hypertension, diagnosed last year." },
+  { field: "medicines", sectionKey: "questions.sections.medicines", sectionFallback: "Medicines", questionKey: "questions.medicines", questionFallback: "Are you currently taking any medicines?", type: "text", mockKey: "questions.mocks.medicines", mockFallback: "Amlodipine 5 mg once daily." },
+  { field: "allergies", sectionKey: "questions.sections.allergies", sectionFallback: "Allergies", questionKey: "questions.allergies", questionFallback: "Do you have any allergies?", type: "quick", optionKeys: [["questions.options.noKnownAllergies", "No known allergies"], ["questions.options.yes", "Yes"], ["questions.options.notSure", "Not sure"]] },
+  { field: "family", sectionKey: "questions.sections.familyHistory", sectionFallback: "Family History", questionKey: "questions.family", questionFallback: "Has anyone in your family had a similar condition?", type: "text", mockKey: "questions.mocks.family", mockFallback: "My father had a heart condition in his 50s." },
+  { field: "surgical", sectionKey: "questions.sections.pastSurgicalHistory", sectionFallback: "Past Surgical History", questionKey: "questions.surgical", questionFallback: "Have you had any surgeries in the past?", type: "quick", optionKeys: [["questions.options.yes", "Yes"], ["questions.options.no", "No"]] },
+  { field: "personal", sectionKey: "questions.sections.personalHistory", sectionFallback: "Personal History", questionKey: "questions.personal", questionFallback: "Do you smoke or consume alcohol?", type: "quick", optionKeys: [["questions.options.neither", "Neither"], ["questions.options.smoke", "Smoke"], ["questions.options.alcohol", "Alcohol"], ["questions.options.both", "Both"]] },
+  { field: "lifestyle", sectionKey: "questions.sections.personalHistory", sectionFallback: "Personal History", questionKey: "questions.lifestyle", questionFallback: "How would you describe your sleep and diet lately?", type: "text", mockKey: "questions.mocks.lifestyle", mockFallback: "Sleep has been irregular, diet is mostly home-cooked." },
+  { field: "additional", sectionKey: "questions.sections.reviewSystems", sectionFallback: "Review of Systems", questionKey: "questions.additional", questionFallback: "Anything else you'd like to add before we finish?", type: "text", mockKey: "questions.mocks.additional", mockFallback: "No, that covers it." },
 ];
+
+const getLocalizedQuestions = (language) => {
+  return QUESTION_DEFS.map((item) => ({
+    ...item,
+    section: safeTranslate(language, item.sectionKey, item.sectionFallback),
+    q: safeTranslate(language, item.questionKey, item.questionFallback),
+    mock: item.mockKey ? safeTranslate(language, item.mockKey, item.mockFallback) : undefined,
+    options: item.optionKeys ? item.optionKeys.map(([key, fallback]) => safeTranslate(language, key, fallback)) : undefined,
+  }));
+};
 
 function Logo({ size = 22 }) {
   return (
@@ -204,7 +265,13 @@ function StoryThread() {
   );
 }
 
-function AuthLayout({ children }) {
+function AuthLayout({ children, t }) {
+  const benefits = [
+    t("auth.benefit1", "Tell us how you feel"),
+    t("auth.benefit2", "Upload your old records"),
+    t("auth.benefit3", "Get a doctor-ready summary")
+  ];
+
   return (
     <div className="mk-body" style={{ minHeight: "100vh", display: "flex", background: BG }}>
       <div style={{
@@ -219,18 +286,18 @@ function AuthLayout({ children }) {
           <span className="mk-display" style={{ fontSize: 19, fontWeight: 600 }}>MediKiosk</span>
         </div>
         <h1 className="mk-display" style={{ fontSize: 34, fontWeight: 700, lineHeight: 1.15, margin: 0, maxWidth: 340 }}>
-          Your complete patient story
+          {t("auth.heroTitle", "Your complete patient story")}
         </h1>
         <p style={{ fontSize: 15, lineHeight: 1.6, marginTop: 18, color: "rgba(255,255,255,.85)", maxWidth: 320 }}>
-          Record your symptoms, organize your medical records, and prepare a complete history before your consultation.
+          {t("auth.heroBody", "Record your symptoms, organize your medical records, and prepare a complete history before your consultation.")}
         </p>
         <div style={{ marginTop: 8 }}>
           <div style={{ position: "relative", paddingLeft: 22, marginTop: 36 }}>
             <div style={{ position: "absolute", left: 6, top: 4, bottom: 4, width: 2, background: "rgba(255,255,255,.35)", borderRadius: 2 }} />
-            {["Tell us how you feel", "Upload your old records", "Get a doctor-ready summary"].map((t, i) => (
+            {benefits.map((item, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, position: "relative" }}>
                 <div style={{ position: "absolute", left: -22, width: 10, height: 10, borderRadius: "50%", background: "#fff" }} />
-                <span style={{ fontSize: 13.5, color: "rgba(255,255,255,.85)" }}>{t}</span>
+                <span style={{ fontSize: 13.5, color: "rgba(255,255,255,.85)" }}>{item}</span>
               </div>
             ))}
           </div>
@@ -243,7 +310,7 @@ function AuthLayout({ children }) {
   );
 }
 
-function LoginScreen({ users, onLogin, onGoRegister, notify }) {
+function LoginScreen({ users, onLogin, onGoRegister, notify, language, t }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -253,29 +320,29 @@ function LoginScreen({ users, onLogin, onGoRegister, notify }) {
 
   const submit = () => {
     const errs = {};
-    if (!email.trim()) errs.email = "Enter your email or mobile number.";
-    if (!password.trim()) errs.password = "Enter your password.";
+    if (!email.trim()) errs.email = t("validation.emailRequired", "Enter your email or mobile number.");
+    if (!password.trim()) errs.password = t("validation.passwordRequired", "Enter your password.");
     setErrors(errs);
     if (Object.keys(errs).length) return;
     const found = users.find(u => (u.email === email || u.mobile === email) && u.password === password);
     if (found) {
       onLogin(found);
     } else {
-      setErrors({ password: "We couldn't match that email and password." });
-      notify("Login failed. Check your details or try Demo Login.", "error");
+      setErrors({ password: t("validation.invalidCredentials", "We couldn't match that email and password.") });
+      notify(t("auth.loginFailed", "Login failed. Check your details or try Demo Login."), "error");
     }
   };
 
   return (
     <div className="mk-fade">
-      <h2 className="mk-display" style={{ fontSize: 24, fontWeight: 600, color: INK, marginBottom: 4 }}>Sign in</h2>
-      <p style={{ fontSize: 13.5, color: SUB, marginBottom: 24 }}>Welcome back. Let's continue your patient story.</p>
+      <h2 className="mk-display" style={{ fontSize: 24, fontWeight: 600, color: INK, marginBottom: 4 }}>{t("auth.signIn", "Sign in")}</h2>
+      <p style={{ fontSize: 13.5, color: SUB, marginBottom: 24 }}>{t("auth.welcomeBack", "Welcome back. Let's continue your patient story.")}</p>
 
-      <TextField label="Email or mobile number" placeholder="name@email.com" value={email}
+      <TextField label={t("auth.emailOrMobile", "Email or mobile number")} placeholder="name@email.com" value={email}
         onChange={e => setEmail(e.target.value)} error={errors.email} />
 
       <div style={{ marginBottom: 6, position: "relative" }}>
-        <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: INK, marginBottom: 6 }}>Password</label>
+        <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: INK, marginBottom: 6 }}>{t("auth.password", "Password")}</label>
         <input type={showPw ? "text" : "password"} placeholder="••••••••" value={password}
           onChange={e => setPassword(e.target.value)}
           style={{ width: "100%", padding: "11px 40px 11px 13px", borderRadius: 9, border: `1px solid ${errors.password ? RED : BORDER}`, fontSize: 14, boxSizing: "border-box" }} />
@@ -288,31 +355,31 @@ function LoginScreen({ users, onLogin, onGoRegister, notify }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "10px 0 22px" }}>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: SUB, cursor: "pointer" }}>
           <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
-          Remember me
+          {t("auth.rememberMe", "Remember me")}
         </label>
         <button onClick={() => setShowForgot(true)} style={{ background: "none", border: "none", color: TEAL, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          Forgot password?
+          {t("auth.forgotPassword", "Forgot password?")}
         </button>
       </div>
 
-      <PrimaryButton onClick={submit} full>Sign in</PrimaryButton>
+      <PrimaryButton onClick={submit} full>{t("auth.signIn", "Sign in")}</PrimaryButton>
       <div style={{ margin: "12px 0" }}>
         <GhostButton full onClick={() => onLogin(DEMO_USER, true)}>
-          <Sparkles size={15} /> Demo login for judges
+          <Sparkles size={15} /> {t("auth.demoLogin", "Demo login for judges")}
         </GhostButton>
       </div>
 
       <p style={{ textAlign: "center", fontSize: 13.5, color: SUB, marginTop: 20 }}>
-        Don't have an account?{" "}
-        <button onClick={onGoRegister} style={{ background: "none", border: "none", color: TEAL, fontWeight: 600, cursor: "pointer" }}>Register</button>
+        {t("auth.dontHaveAccount", "Don't have an account?")}{" "}
+        <button onClick={onGoRegister} style={{ background: "none", border: "none", color: TEAL, fontWeight: 600, cursor: "pointer" }}>{t("auth.register", "Register")}</button>
       </p>
 
       {showForgot && (
-        <Modal onClose={() => setShowForgot(false)} title="Password reset">
+        <Modal onClose={() => setShowForgot(false)} title={t("auth.passwordResetTitle", "Password reset")}>
           <p style={{ fontSize: 13.5, color: SUB, lineHeight: 1.6 }}>
-            Password reset isn't available in this prototype. Use Demo Login or your registered password to continue.
+            {t("auth.passwordResetMessage", "Password reset isn't available in this prototype. Use Demo Login or your registered password to continue.")}
           </p>
-          <PrimaryButton onClick={() => setShowForgot(false)} style={{ marginTop: 12 }} full>Got it</PrimaryButton>
+          <PrimaryButton onClick={() => setShowForgot(false)} style={{ marginTop: 12 }} full>{t("auth.gotIt", "Got it")}</PrimaryButton>
         </Modal>
       )}
     </div>
@@ -333,21 +400,21 @@ function Modal({ children, onClose, title }) {
   );
 }
 
-function RegisterScreen({ onRegister, onGoLogin }) {
+function RegisterScreen({ onRegister, onGoLogin, t }) {
   const [form, setForm] = useState({ name: "", email: "", mobile: "", dob: "", gender: "", password: "", confirm: "", abha: "", agree: false });
   const [errors, setErrors] = useState({});
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const submit = () => {
     const errs = {};
-    if (!form.name.trim()) errs.name = "Full name is required.";
-    if (!/^\S+@\S+\.\S+$/.test(form.email)) errs.email = "Enter a valid email address.";
-    if (!/^\d{10}$/.test(form.mobile)) errs.mobile = "Enter a valid 10-digit mobile number.";
-    if (!form.dob) errs.dob = "Date of birth is required.";
-    if (!form.gender) errs.gender = "Select a gender.";
-    if (form.password.length < 6) errs.password = "Password must be at least 6 characters.";
-    if (form.confirm !== form.password) errs.confirm = "Passwords don't match.";
-    if (!form.agree) errs.agree = "You must agree to continue.";
+    if (!form.name.trim()) errs.name = t("validation.fullNameRequired", "Full name is required.");
+    if (!/^\S+@\S+\.\S+$/.test(form.email)) errs.email = t("validation.emailInvalid", "Enter a valid email address.");
+    if (!/^\d{10}$/.test(form.mobile)) errs.mobile = t("validation.mobileInvalid", "Enter a valid 10-digit mobile number.");
+    if (!form.dob) errs.dob = t("validation.dobRequired", "Date of birth is required.");
+    if (!form.gender) errs.gender = t("validation.genderRequired", "Select a gender.");
+    if (form.password.length < 6) errs.password = t("validation.passwordMin", "Password must be at least 6 characters.");
+    if (form.confirm !== form.password) errs.confirm = t("validation.passwordsMatch", "Passwords don't match.");
+    if (!form.agree) errs.agree = t("validation.agreeRequired", "You must agree to continue.");
     setErrors(errs);
     if (Object.keys(errs).length) return;
     onRegister({ ...form });
@@ -355,46 +422,46 @@ function RegisterScreen({ onRegister, onGoLogin }) {
 
   return (
     <div className="mk-fade">
-      <h2 className="mk-display" style={{ fontSize: 24, fontWeight: 600, color: INK, marginBottom: 4 }}>Create your account</h2>
-      <p style={{ fontSize: 13.5, color: SUB, marginBottom: 22 }}>Takes about two minutes.</p>
+      <h2 className="mk-display" style={{ fontSize: 24, fontWeight: 600, color: INK, marginBottom: 4 }}>{t("auth.createAccount", "Create your account")}</h2>
+      <p style={{ fontSize: 13.5, color: SUB, marginBottom: 22 }}>{t("auth.takesAboutTwoMinutes", "Takes about two minutes.")}</p>
 
-      <TextField label="Full name" value={form.name} onChange={e => set("name", e.target.value)} error={errors.name} placeholder="Ishwari Sharma" />
-      <TextField label="Email" value={form.email} onChange={e => set("email", e.target.value)} error={errors.email} placeholder="name@email.com" />
-      <TextField label="Mobile number" value={form.mobile} onChange={e => set("mobile", e.target.value)} error={errors.mobile} placeholder="9876543210" />
+      <TextField label={t("auth.fullName", "Full name")} value={form.name} onChange={e => set("name", e.target.value)} error={errors.name} placeholder="Ishwari Sharma" />
+      <TextField label={t("auth.email", "Email")} value={form.email} onChange={e => set("email", e.target.value)} error={errors.email} placeholder="name@email.com" />
+      <TextField label={t("auth.mobile", "Mobile number")} value={form.mobile} onChange={e => set("mobile", e.target.value)} error={errors.mobile} placeholder="9876543210" />
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: 1 }}>
-          <TextField label="Date of birth" type="date" value={form.dob} onChange={e => set("dob", e.target.value)} error={errors.dob} />
+          <TextField label={t("auth.dateOfBirth", "Date of birth")} type="date" value={form.dob} onChange={e => set("dob", e.target.value)} error={errors.dob} />
         </div>
         <div style={{ flex: 1 }}>
-          <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: INK, marginBottom: 6 }}>Gender</label>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: INK, marginBottom: 6 }}>{t("auth.gender", "Gender")}</label>
           <select value={form.gender} onChange={e => set("gender", e.target.value)}
             style={{ width: "100%", padding: "11px 13px", borderRadius: 9, border: `1px solid ${errors.gender ? RED : BORDER}`, fontSize: 14, background: "#fff" }}>
-            <option value="">Select</option>
-            <option>Female</option><option>Male</option><option>Other</option>
+            <option value="">{t("auth.selectGender", "Select")}</option>
+            <option>{t("auth.female", "Female")}</option><option>{t("auth.male", "Male")}</option><option>{t("auth.other", "Other")}</option>
           </select>
           {errors.gender && <div style={{ fontSize: 12, color: RED, marginTop: 4 }}>{errors.gender}</div>}
         </div>
       </div>
-      <TextField label="Password" type="password" value={form.password} onChange={e => set("password", e.target.value)} error={errors.password} placeholder="At least 6 characters" />
-      <TextField label="Confirm password" type="password" value={form.confirm} onChange={e => set("confirm", e.target.value)} error={errors.confirm} />
-      <TextField label="ABHA ID (optional)" value={form.abha} onChange={e => set("abha", e.target.value)} placeholder="14-xxxx-xxxx-xxxx" />
+      <TextField label={t("auth.password", "Password")} type="password" value={form.password} onChange={e => set("password", e.target.value)} error={errors.password} placeholder={t("auth.passwordHint", "At least 6 characters")} />
+      <TextField label={t("auth.confirmPassword", "Confirm password")} type="password" value={form.confirm} onChange={e => set("confirm", e.target.value)} error={errors.confirm} />
+      <TextField label={t("auth.abhaId", "ABHA ID (optional)")} value={form.abha} onChange={e => set("abha", e.target.value)} placeholder="14-xxxx-xxxx-xxxx" />
 
       <label style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: SUB, marginBottom: 6, cursor: "pointer" }}>
         <input type="checkbox" checked={form.agree} onChange={e => set("agree", e.target.checked)} style={{ marginTop: 2 }} />
-        I agree to the Terms and Privacy Policy.
+        {t("auth.agreeTerms", "I agree to the Terms and Privacy Policy.")}
       </label>
       {errors.agree && <div style={{ fontSize: 12, color: RED, marginBottom: 10 }}>{errors.agree}</div>}
 
-      <PrimaryButton onClick={submit} full style={{ marginTop: 8 }}>Create account</PrimaryButton>
+      <PrimaryButton onClick={submit} full style={{ marginTop: 8 }}>{t("auth.createAccount", "Create account")}</PrimaryButton>
       <p style={{ textAlign: "center", fontSize: 13.5, color: SUB, marginTop: 18 }}>
-        Already registered?{" "}
-        <button onClick={onGoLogin} style={{ background: "none", border: "none", color: TEAL, fontWeight: 600, cursor: "pointer" }}>Sign in</button>
+        {t("auth.alreadyRegistered", "Already registered?")}{" "}
+        <button onClick={onGoLogin} style={{ background: "none", border: "none", color: TEAL, fontWeight: 600, cursor: "pointer" }}>{t("auth.signInLink", "Sign in")}</button>
       </p>
     </div>
   );
 }
 
-function ConsentScreen({ onAccept, onDecline }) {
+function ConsentScreen({ onAccept, onDecline, t }) {
   const [consent, setConsent] = useState({ history: true, voice: true, docs: true, summary: true });
   const [playing, setPlaying] = useState(false);
   const allOn = Object.values(consent).every(Boolean);
@@ -405,10 +472,10 @@ function ConsentScreen({ onAccept, onDecline }) {
   };
 
   const items = [
-    { key: "history", label: "Medical history", desc: "The symptoms and history you share in conversation." },
-    { key: "voice", label: "Voice / conversation", desc: "Your spoken responses during the interview, where used." },
-    { key: "docs", label: "Medical documents", desc: "Prescriptions, lab reports and discharge summaries you upload." },
-    { key: "summary", label: "Health summary", desc: "The combined report generated for your doctor." },
+    { key: "history", label: t("consent.history", "Medical history"), desc: t("consent.descriptionHistory", "The symptoms and history you share in conversation.") },
+    { key: "voice", label: t("consent.voice", "Voice / conversation"), desc: t("consent.descriptionVoice", "Your spoken responses during the interview, where used.") },
+    { key: "docs", label: t("consent.docs", "Medical documents"), desc: t("consent.descriptionDocs", "Prescriptions, lab reports and discharge summaries you upload.") },
+    { key: "summary", label: t("consent.summary", "Health summary"), desc: t("consent.descriptionSummary", "The combined report generated for your doctor.") },
   ];
 
   return (
@@ -417,16 +484,16 @@ function ConsentScreen({ onAccept, onDecline }) {
         <div style={{ width: 44, height: 44, borderRadius: 12, background: TEAL_TINT, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 18 }}>
           <ShieldCheck size={22} color={TEAL} />
         </div>
-        <h1 className="mk-display" style={{ fontSize: 24, fontWeight: 600, color: INK, margin: 0 }}>Your data, your consent</h1>
+        <h1 className="mk-display" style={{ fontSize: 24, fontWeight: 600, color: INK, margin: 0 }}>{t("consent.title", "Your data, your consent")}</h1>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginTop: 12 }}>
           <p style={{ fontSize: 14, color: SUB, lineHeight: 1.6, margin: 0, flex: 1 }}>
-            MediKiosk collects your health information to prepare a structured medical history for your healthcare provider.
+            {t("consent.intro", "MediKiosk collects your health information to prepare a structured medical history for your healthcare provider.")}
           </p>
-          <button onClick={play} title="Listen to consent explanation" style={{ background: TEAL_TINT, border: "none", borderRadius: 8, padding: 8, cursor: "pointer", flexShrink: 0 }}>
+          <button onClick={play} title={t("consent.listen", "Listen to consent explanation")} style={{ background: TEAL_TINT, border: "none", borderRadius: 8, padding: 8, cursor: "pointer", flexShrink: 0 }}>
             <Volume2 size={16} color={TEAL} style={playing ? { animation: "mkPulse 1s infinite" } : {}} />
           </button>
         </div>
-        {playing && <div style={{ fontSize: 12.5, color: TEAL, marginTop: 6 }}>Playing consent explanation…</div>}
+        {playing && <div style={{ fontSize: 12.5, color: TEAL, marginTop: 6 }}>{t("consent.playConsent", "Playing consent explanation…")}</div>}
 
         <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 10 }}>
           {items.map(it => (
@@ -447,13 +514,13 @@ function ConsentScreen({ onAccept, onDecline }) {
         </div>
 
         <p style={{ fontSize: 12.5, color: SUB, marginTop: 16, background: TEAL_TINT, padding: 12, borderRadius: 8 }}>
-          Your information will only be used with your permission, and only to prepare your patient story for review by a qualified healthcare professional.
+          {t("consent.info", "Your information will only be used with your permission, and only to prepare your patient story for review by a qualified healthcare professional.")}
         </p>
 
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-          <GhostButton onClick={onDecline} style={{ flex: 1 }}>Decline</GhostButton>
+          <GhostButton onClick={onDecline} style={{ flex: 1 }}>{t("consent.decline", "Decline")}</GhostButton>
           <PrimaryButton onClick={() => onAccept(consent)} disabled={!allOn} style={{ flex: 1.4 }}>
-            <Check size={15} /> I understand and give consent
+            <Check size={15} /> {t("consent.accept", "I understand and give consent")}
           </PrimaryButton>
         </div>
       </div>
@@ -461,16 +528,16 @@ function ConsentScreen({ onAccept, onDecline }) {
   );
 }
 
-function LanguageScreen({ onContinue }) {
-  const [sel, setSel] = useState("en");
+function LanguageScreen({ onContinue, language, t }) {
+  const [sel, setSel] = useState(language || "en");
   return (
     <div className="mk-body" style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="mk-fade" style={{ background: "#fff", borderRadius: 16, padding: 40, maxWidth: 480, width: "100%", border: `1px solid ${BORDER}`, textAlign: "center" }}>
         <div style={{ width: 44, height: 44, borderRadius: 12, background: TEAL_TINT, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
           <Globe size={22} color={TEAL} />
         </div>
-        <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: 0 }}>Choose your preferred language</h1>
-        <p style={{ fontSize: 13.5, color: SUB, marginTop: 8 }}>You can change your language anytime from your profile.</p>
+        <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: 0 }}>{t("language.title", "Choose your preferred language")}</h1>
+        <p style={{ fontSize: 13.5, color: SUB, marginTop: 8 }}>{t("language.subtitle", "You can change your language anytime from your profile.")}</p>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 24 }}>
           {LANGS.map(l => (
@@ -482,35 +549,35 @@ function LanguageScreen({ onContinue }) {
               }}>
               <div style={{ fontWeight: 700, fontSize: 13, color: TEAL, marginBottom: 6 }}>{l.flag}</div>
               <div style={{ fontWeight: 600, fontSize: 14.5, color: INK }}>{l.native}</div>
-              <div style={{ fontSize: 12, color: SUB }}>{l.label}{l.code !== "en" ? " · basic labels" : " · full experience"}</div>
+              <div style={{ fontSize: 12, color: SUB }}>{l.label}{l.code !== "en" ? ` · ${t("language.basicLabels", "basic labels")}` : ` · ${t("language.fullExperience", "full experience")}`}</div>
             </button>
           ))}
         </div>
 
         <PrimaryButton onClick={() => onContinue(sel)} full style={{ marginTop: 26 }}>
-          Continue to MediKiosk <ChevronRight size={16} />
+          {t("language.continueTo", "Continue to MediKiosk")} <ChevronRight size={16} />
         </PrimaryButton>
       </div>
     </div>
   );
 }
 
-const NAV = [
-  { key: "dashboard", label: "Dashboard", icon: Home },
-  { key: "chat", label: "AI History Chat", icon: MessageSquare },
-  { key: "upload", label: "Medical Documents", icon: FileText },
-  { key: "report", label: "Medical Report", icon: ClipboardList },
-  { key: "timeline", label: "Patient Timeline", icon: Clock },
-  { key: "profile", label: "Profile", icon: User },
-  { key: "settings", label: "Settings", icon: SettingsIcon },
+const getNavItems = (t) => [
+  { key: "dashboard", label: t("nav.dashboard", "Dashboard"), icon: Home },
+  { key: "chat", label: t("nav.chat", "AI History Chat"), icon: MessageSquare },
+  { key: "upload", label: t("nav.upload", "Medical Documents"), icon: FileText },
+  { key: "report", label: t("nav.report", "Medical Report"), icon: ClipboardList },
+  { key: "timeline", label: t("nav.timeline", "Patient Timeline"), icon: Clock },
+  { key: "profile", label: t("nav.profile", "Profile"), icon: User },
+  { key: "settings", label: t("nav.settings", "Settings"), icon: SettingsIcon },
 ];
 
-function Sidebar({ screen, setScreen, onLogout }) {
+function Sidebar({ screen, setScreen, onLogout, t }) {
   return (
     <div style={{ width: 232, flexShrink: 0, background: "#fff", borderRight: `1px solid ${BORDER}`, display: "flex", flexDirection: "column", padding: "20px 14px", height: "100vh", position: "sticky", top: 0 }}>
       <div style={{ padding: "0 8px 22px" }}><Logo size={18} /></div>
       <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-        {NAV.map(n => {
+        {getNavItems(t).map(n => {
           const active = screen === n.key;
           return (
             <button key={n.key} onClick={() => setScreen(n.key)}
@@ -528,13 +595,13 @@ function Sidebar({ screen, setScreen, onLogout }) {
       </div>
       <button onClick={onLogout} style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", borderRadius: 9, border: "none", cursor: "pointer", background: "transparent", textAlign: "left" }}>
         <LogOut size={16.5} color={RED} />
-        <span style={{ fontSize: 13.5, fontWeight: 500, color: RED }}>Log out</span>
+        <span style={{ fontSize: 13.5, fontWeight: 500, color: RED }}>{t("common.logout", "Log out")}</span>
       </button>
     </div>
   );
 }
 
-function TopBar({ title, user, language, setLanguage }) {
+function TopBar({ title, user, language, setLanguage, t }) {
   const [open, setOpen] = useState(false);
   const initials = user.name.split(" ").map(w => w[0]).slice(0, 2).join("");
   return (
@@ -543,7 +610,7 @@ function TopBar({ title, user, language, setLanguage }) {
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ position: "relative" }}>
           <button onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontSize: 12.5, color: INK }}>
-            <Globe size={14} /> {LANGS.find(l => l.code === language)?.native}
+            <Globe size={14} /> {getLanguageLabel(language)}
           </button>
           {open && (
             <div style={{ position: "absolute", right: 0, top: 34, background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,.08)", zIndex: 20, width: 150 }}>
@@ -575,30 +642,30 @@ function ProgressRow({ label, done }) {
   );
 }
 
-function Dashboard({ user, setScreen, chatDone, docsCount, progressPct }) {
+function Dashboard({ user, setScreen, chatDone, docsCount, progressPct, language, t }) {
   return (
     <div style={{ padding: 28 }}>
-      <h1 className="mk-display" style={{ fontSize: 24, fontWeight: 600, color: INK, margin: 0 }}>Welcome, {user.name.split(" ")[0]} 👋</h1>
-      <p style={{ fontSize: 14, color: SUB, marginTop: 4 }}>Let's prepare your complete patient story.</p>
+      <h1 className="mk-display" style={{ fontSize: 24, fontWeight: 600, color: INK, margin: 0 }}>{t("dashboard.welcome", "Welcome")}, {user.name.split(" ")[0]} 👋</h1>
+      <p style={{ fontSize: 14, color: SUB, marginTop: 4 }}>{t("dashboard.prepareStory", "Let's prepare your complete patient story.")}</p>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, marginTop: 24 }}>
         <div onClick={() => setScreen("chat")} style={{ cursor: "pointer", background: `linear-gradient(135deg, ${TEAL} 0%, ${TEAL_DARK} 100%)`, borderRadius: 16, padding: 28, color: "#fff", position: "relative", overflow: "hidden" }}>
           <MessageSquare size={22} />
-          <h3 className="mk-display" style={{ fontSize: 19, fontWeight: 600, margin: "14px 0 4px" }}>Start medical history</h3>
-          <p style={{ fontSize: 13.5, color: "rgba(255,255,255,.85)", margin: 0, maxWidth: 320 }}>Tell us how you're feeling — in your own words, by typing or speaking.</p>
+          <h3 className="mk-display" style={{ fontSize: 19, fontWeight: 600, margin: "14px 0 4px" }}>{t("dashboard.startInterview", "Start medical history")}</h3>
+          <p style={{ fontSize: 13.5, color: "rgba(255,255,255,.85)", margin: 0, maxWidth: 320 }}>{t("dashboard.prepareStory", "Let's prepare your complete patient story.")}</p>
           <div style={{ marginTop: 18, display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(255,255,255,.15)", padding: "9px 16px", borderRadius: 9, fontSize: 13.5, fontWeight: 600 }}>
-            {chatDone ? "Review interview" : "Start interview"} <ChevronRight size={14} />
+            {chatDone ? t("dashboard.reviewInterview", "Review interview") : t("dashboard.startInterview", "Start interview")} <ChevronRight size={14} />
           </div>
         </div>
 
         <div style={{ background: "#fff", borderRadius: 16, padding: 22, border: `1px solid ${BORDER}` }}>
-          <h4 style={{ fontSize: 13.5, fontWeight: 600, color: INK, margin: "0 0 12px" }}>Your patient profile</h4>
-          <ProgressRow label="Personal information" done />
-          <ProgressRow label="Consent" done />
-          <ProgressRow label="Language" done />
-          <ProgressRow label="Medical history" done={chatDone} />
-          <ProgressRow label="Medical documents" done={docsCount > 0} />
-          <ProgressRow label="Final report" done={chatDone && docsCount > 0} />
+          <h4 style={{ fontSize: 13.5, fontWeight: 600, color: INK, margin: "0 0 12px" }}>{t("dashboard.patientProfile", "Your patient profile")}</h4>
+          <ProgressRow label={t("dashboard.personalInfo", "Personal information")} done />
+          <ProgressRow label={t("dashboard.consent", "Consent")} done />
+          <ProgressRow label={t("dashboard.language", "Language")} done />
+          <ProgressRow label={t("dashboard.medicalHistory", "Medical history")} done={chatDone} />
+          <ProgressRow label={t("dashboard.documents", "Medical documents")} done={docsCount > 0} />
+          <ProgressRow label={t("dashboard.finalReport", "Final report")} done={chatDone && docsCount > 0} />
           <div style={{ marginTop: 12, height: 6, background: "#EDF2F1", borderRadius: 999 }}>
             <div style={{ height: 6, width: `${progressPct}%`, background: TEAL, borderRadius: 999, transition: "width .3s" }} />
           </div>
@@ -607,9 +674,9 @@ function Dashboard({ user, setScreen, chatDone, docsCount, progressPct }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 16 }}>
         {[
-          { icon: Upload, title: "Upload medical records", desc: "Add prescriptions, lab reports or discharge summaries.", btn: "Upload documents", go: "upload" },
-          { icon: ClipboardList, title: "Your medical report", desc: "Review your AI-generated patient history.", btn: "View report", go: "report" },
-          { icon: Clock, title: "Health timeline", desc: "See your medical history organized by date.", btn: "View timeline", go: "timeline" },
+          { icon: Upload, title: t("dashboard.uploadRecords", "Upload medical records"), desc: t("dashboard.uploadDescription", "Add prescriptions, lab reports or discharge summaries."), btn: t("dashboard.uploadAction", "Upload documents"), go: "upload" },
+          { icon: ClipboardList, title: t("dashboard.reportTitle", "Your medical report"), desc: t("dashboard.reportDescription", "Review your AI-generated patient history."), btn: t("dashboard.reportAction", "View report"), go: "report" },
+          { icon: Clock, title: t("dashboard.timelineTitle", "Health timeline"), desc: t("dashboard.timelineDescription", "See your medical history organized by date."), btn: t("dashboard.timelineAction", "View timeline"), go: "timeline" },
         ].map((c, i) => (
           <div key={i} onClick={() => setScreen(c.go)} style={{ cursor: "pointer", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, padding: 20 }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: TEAL_TINT, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
@@ -625,13 +692,14 @@ function Dashboard({ user, setScreen, chatDone, docsCount, progressPct }) {
   );
 }
 
-function ChatScreen({ user, language, answers, setAnswers, qIndex, setQIndex, messages, setMessages, onFinish }) {
+function ChatScreen({ user, language, answers, setAnswers, qIndex, setQIndex, messages, setMessages, onFinish, t }) {
   const [input, setInput] = useState("");
   const [listening, setListening] = useState(false);
   const scrollRef = useRef(null);
-  const done = qIndex >= QUESTIONS.length;
-  const current = !done ? QUESTIONS[qIndex] : null;
-  const pct = Math.round((qIndex / QUESTIONS.length) * 100);
+  const questions = getLocalizedQuestions(language);
+  const done = qIndex >= questions.length;
+  const current = !done ? questions[qIndex] : null;
+  const pct = Math.round((qIndex / questions.length) * 100);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -644,12 +712,13 @@ function ChatScreen({ user, language, answers, setAnswers, qIndex, setQIndex, me
   }, []);
 
   const advance = (answerText) => {
-    const q = QUESTIONS[qIndex];
+    const q = questions[qIndex];
+    if (!q) return;
     setAnswers(a => ({ ...a, [q.field]: answerText }));
     const userMsg = { sender: "user", text: answerText };
     const nextIndex = qIndex + 1;
-    const next = QUESTIONS[nextIndex];
-    setMessages(m => [...m, userMsg, ...(next ? [{ sender: "ai", text: next.q, section: next.section }] : [{ sender: "ai", text: "Your medical history has been recorded.", section: "Complete" }])]);
+    const next = questions[nextIndex];
+    setMessages(m => [...m, userMsg, ...(next ? [{ sender: "ai", text: next.q, section: next.section }] : [{ sender: "ai", text: t("chat.recorded", "Your medical history has been recorded."), section: t("chat.historyComplete", "Complete") }])]);
     setQIndex(nextIndex);
     setInput("");
   };
@@ -671,11 +740,11 @@ function ChatScreen({ user, language, answers, setAnswers, qIndex, setQIndex, me
   return (
     <div style={{ padding: 28, display: "flex", flexDirection: "column", height: "calc(100vh - 65px)" }}>
       <div>
-        <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: 0 }}>AI medical history</h1>
-        <p style={{ fontSize: 13.5, color: SUB, margin: "4px 0 14px" }}>Tell us about your health in your own words.</p>
+        <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: 0 }}>{t("chat.title", "AI medical history")}</h1>
+        <p style={{ fontSize: 13.5, color: SUB, margin: "4px 0 14px" }}>{t("chat.subtitle", "Tell us about your health in your own words.")}</p>
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 6 }}>
-          <span style={{ fontSize: 12.5, color: SUB }}>{user.name} · {LANGS.find(l => l.code === language)?.native}</span>
-          <span style={{ fontSize: 12.5, color: TEAL, fontWeight: 600 }}>{done ? "Complete" : `History ${pct}% complete`}</span>
+          <span style={{ fontSize: 12.5, color: SUB }}>{user.name} · {getLanguageLabel(language)}</span>
+          <span style={{ fontSize: 12.5, color: TEAL, fontWeight: 600 }}>{done ? t("chat.historyComplete", "Complete") : `${t("chat.historyProgress", "History")} ${pct}%`}</span>
         </div>
         <div style={{ height: 6, background: "#EDF2F1", borderRadius: 999, marginBottom: 16 }}>
           <div style={{ height: 6, width: `${done ? 100 : pct}%`, background: TEAL, borderRadius: 999, transition: "width .3s" }} />
@@ -695,7 +764,7 @@ function ChatScreen({ user, language, answers, setAnswers, qIndex, setQIndex, me
             </div>
           </div>
         ))}
-        {!done && <div style={{ fontSize: 11.5, color: SUB, alignSelf: "flex-start", paddingLeft: 4 }}>Question {qIndex + 1} of {QUESTIONS.length}</div>}
+        {!done && <div style={{ fontSize: 11.5, color: SUB, alignSelf: "flex-start", paddingLeft: 4 }}>{t("chat.questionLabel", "Question")} {qIndex + 1} {t("chat.of", "of")} {questions.length}</div>}
       </div>
 
       {!done ? (
@@ -705,11 +774,11 @@ function ChatScreen({ user, language, answers, setAnswers, qIndex, setQIndex, me
               {current.options.map(o => (
                 <button key={o} onClick={() => advance(o)} style={{ padding: "8px 16px", borderRadius: 999, border: `1px solid ${TEAL}`, background: "#fff", color: TEAL, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{o}</button>
               ))}
-              <button onClick={() => advance("Skip")} style={{ padding: "8px 16px", borderRadius: 999, border: `1px solid ${BORDER}`, background: "#fff", color: SUB, fontSize: 13, cursor: "pointer" }}>Skip</button>
+              <button onClick={() => advance("Skip")} style={{ padding: "8px 16px", borderRadius: 999, border: `1px solid ${BORDER}`, background: "#fff", color: SUB, fontSize: 13, cursor: "pointer" }}>{t("common.skip", "Skip")}</button>
             </div>
           )}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button onClick={simulateVoice} title="Speak your answer"
+            <button onClick={simulateVoice} title={t("chat.voiceTooltip", "Speak your answer")}
               style={{
                 width: 44, height: 44, borderRadius: "50%", border: "none", flexShrink: 0, cursor: "pointer",
                 background: listening ? RED : TEAL_TINT, display: "flex", alignItems: "center", justifyContent: "center",
@@ -717,23 +786,23 @@ function ChatScreen({ user, language, answers, setAnswers, qIndex, setQIndex, me
               }}>
               <Mic size={18} color={listening ? "#fff" : TEAL} />
             </button>
-            <input value={listening ? "Listening…" : input} disabled={listening}
+            <input value={listening ? t("chat.listening", "Listening…") : input} disabled={listening}
               onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && send()}
-              placeholder="Type your answer…"
+              placeholder={t("chat.placeholder", "Type your answer…")}
               style={{ flex: 1, padding: "12px 14px", borderRadius: 10, border: `1px solid ${BORDER}`, fontSize: 14 }} />
             <PrimaryButton onClick={send} disabled={listening || !input.trim()}><Send size={15} /></PrimaryButton>
           </div>
         </div>
       ) : (
         <div style={{ marginTop: 16, textAlign: "center" }}>
-          <PrimaryButton onClick={onFinish} full>Continue to medical records <ChevronRight size={15} /></PrimaryButton>
+          <PrimaryButton onClick={onFinish} full>{t("chat.continue", "Continue to medical records")} <ChevronRight size={15} /></PrimaryButton>
         </div>
       )}
     </div>
   );
 }
 
-function UploadScreen({ documents, setDocuments, notify }) {
+function UploadScreen({ documents, setDocuments, notify, language, t }) {
   const [dragOver, setDragOver] = useState(false);
   const [viewDoc, setViewDoc] = useState(null);
   const fileRef = useRef(null);
@@ -742,7 +811,7 @@ function UploadScreen({ documents, setDocuments, notify }) {
     const list = Array.from(files || []);
     list.forEach((f, i) => {
       const id = "u" + Date.now() + i;
-      const doc = { id, name: f.name, date: "Today", status: "analyzing" };
+      const doc = { id, name: f.name, date: t("upload.uploadedToday", "Today"), status: "analyzing" };
       setDocuments(d => [...d, doc]);
       setTimeout(() => {
         setDocuments(d => d.map(x => x.id === id ? {
@@ -756,8 +825,8 @@ function UploadScreen({ documents, setDocuments, notify }) {
 
   return (
     <div style={{ padding: 28 }}>
-      <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: 0 }}>Medical records</h1>
-      <p style={{ fontSize: 13.5, color: SUB, margin: "4px 0 20px" }}>Upload your previous medical documents to build your complete patient story.</p>
+      <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: 0 }}>{t("upload.title", "Medical records")}</h1>
+      <p style={{ fontSize: 13.5, color: SUB, margin: "4px 0 20px" }}>{t("upload.subtitle", "Upload your previous medical documents to build your complete patient story.")}</p>
 
       <div
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -770,9 +839,9 @@ function UploadScreen({ documents, setDocuments, notify }) {
         }}>
         <input ref={fileRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={e => handleFiles(e.target.files)} />
         <Upload size={26} color={TEAL} style={{ margin: "0 auto 10px" }} />
-        <p style={{ fontSize: 14.5, fontWeight: 600, color: INK, margin: "0 0 4px" }}>Drag and drop files, or click to browse</p>
-        <p style={{ fontSize: 12.5, color: SUB, margin: 0 }}>Prescriptions · Lab reports · Discharge summaries · Medical reports</p>
-        <p style={{ fontSize: 11.5, color: "#9AA8A4", marginTop: 8 }}>PDF, JPG, PNG up to 10MB</p>
+        <p style={{ fontSize: 14.5, fontWeight: 600, color: INK, margin: "0 0 4px" }}>{t("upload.dropzoneTitle", "Drag and drop files, or click to browse")}</p>
+        <p style={{ fontSize: 12.5, color: SUB, margin: 0 }}>{t("upload.dropzoneSubtitle", "Prescriptions · Lab reports · Discharge summaries · Medical reports")}</p>
+        <p style={{ fontSize: 11.5, color: "#9AA8A4", marginTop: 8 }}>{t("upload.dropzoneMeta", "PDF, JPG, PNG up to 10MB")}</p>
       </div>
 
       <div style={{ marginTop: 22, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -787,24 +856,24 @@ function UploadScreen({ documents, setDocuments, notify }) {
             </div>
             {doc.status === "analyzing" ? (
               <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: AMBER }}>
-                <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> Analyzing document…
+                <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> {t("upload.analyzing", "Analyzing document…")}
               </span>
             ) : (
               <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, color: GREEN, fontWeight: 600 }}>
-                <CheckCircle2 size={14} /> Processed
+                <CheckCircle2 size={14} /> {t("upload.processed", "Processed")}
               </span>
             )}
             <button onClick={() => setViewDoc(doc)} disabled={doc.status !== "processed"} style={{ background: "none", border: "none", cursor: doc.status === "processed" ? "pointer" : "default", color: SUB }}><Eye size={16} /></button>
             <button onClick={() => setDocuments(d => d.filter(x => x.id !== doc.id))} style={{ background: "none", border: "none", cursor: "pointer", color: RED }}><Trash2 size={16} /></button>
           </div>
         ))}
-        {documents.length === 0 && <p style={{ fontSize: 13, color: SUB, textAlign: "center" }}>No documents uploaded yet.</p>}
+        {documents.length === 0 && <p style={{ fontSize: 13, color: SUB, textAlign: "center" }}>{t("upload.noDocuments", "No documents uploaded yet.")}</p>}
       </div>
 
       {viewDoc && (
         <Modal onClose={() => setViewDoc(null)} title={viewDoc.name}>
           <div style={{ fontSize: 12.5, color: SUB, marginBottom: 10 }}>{viewDoc.date}</div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: TEAL, marginBottom: 8 }}>EXTRACTED INFORMATION</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: TEAL, marginBottom: 8 }}>{t("upload.extractedInfo", "EXTRACTED INFORMATION")}</div>
           {Object.entries(viewDoc.extracted || {}).map(([k, v]) => (
             <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${BORDER}`, fontSize: 13 }}>
               <span style={{ color: SUB }}>{k}</span><span style={{ fontWeight: 600, color: INK }}>{v}</span>
@@ -816,17 +885,17 @@ function UploadScreen({ documents, setDocuments, notify }) {
   );
 }
 
-function TimelineScreen({ events }) {
+function TimelineScreen({ events, language, t }) {
   const [filter, setFilter] = useState("All");
-  const filters = ["All", "Diagnoses", "Medicines", "Lab Reports", "Visits"];
-  const typeMatch = { Diagnoses: "Prescription", "Lab Reports": "Lab Report", Visits: "Visit" };
-  const shown = filter === "All" ? events : events.filter(e => e.type === typeMatch[filter]);
-  const colorFor = t => t === "Prescription" ? TEAL : t === "Lab Report" ? AMBER : "#6B7FD7";
+  const filters = [t("timeline.all", "All"), t("timeline.diagnoses", "Diagnoses"), t("timeline.medicines", "Medicines"), t("timeline.labReports", "Lab Reports"), t("timeline.visits", "Visits")];
+  const typeMatch = { [t("timeline.diagnoses", "Diagnoses")]: "Prescription", [t("timeline.labReports", "Lab Reports")]: "Lab Report", [t("timeline.visits", "Visits")]: "Visit" };
+  const shown = filter === t("timeline.all", "All") ? events : events.filter(e => e.type === typeMatch[filter]);
+  const colorFor = type => type === "Prescription" ? TEAL : type === "Lab Report" ? AMBER : "#6B7FD7";
 
   return (
     <div style={{ padding: 28 }}>
-      <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: 0 }}>Medical timeline</h1>
-      <p style={{ fontSize: 13.5, color: SUB, margin: "4px 0 18px" }}>Your health journey, organized in one place.</p>
+      <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: 0 }}>{t("timeline.title", "Medical timeline")}</h1>
+      <p style={{ fontSize: 13.5, color: SUB, margin: "4px 0 18px" }}>{t("timeline.subtitle", "Your health journey, organized in one place.")}</p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
         {filters.map(f => (
@@ -852,13 +921,13 @@ function TimelineScreen({ events }) {
             </div>
           </div>
         ))}
-        {shown.length === 0 && <p style={{ fontSize: 13, color: SUB }}>No entries in this category yet.</p>}
+        {shown.length === 0 && <p style={{ fontSize: 13, color: SUB }}>{t("timeline.noEntries", "No entries in this category yet.")}</p>}
       </div>
     </div>
   );
 }
 
-function ReportScreen({ user, answers, documents, notify }) {
+function ReportScreen({ user, answers, documents, notify, language, t }) {
   const [editing, setEditing] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const has = f => answers[f] && answers[f] !== "Skip";
@@ -872,72 +941,72 @@ function ReportScreen({ user, answers, documents, notify }) {
 
   return (
     <div style={{ padding: 28, maxWidth: 780 }}>
-      <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: 0 }}>Complete patient story</h1>
-      <p style={{ fontSize: 13.5, color: SUB, margin: "4px 0 16px" }}>AI-generated clinical history for physician review.</p>
+      <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: 0 }}>{t("report.title", "Complete patient story")}</h1>
+      <p style={{ fontSize: 13.5, color: SUB, margin: "4px 0 16px" }}>{t("report.subtitle", "AI-generated clinical history for physician review.")}</p>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#FDF3E7", border: `1px solid #F0D9AE`, borderRadius: 10, padding: "10px 14px", marginBottom: 20 }}>
         <AlertTriangle size={16} color={AMBER} />
-        <span style={{ fontSize: 12.5, color: "#7A5A1E", fontWeight: 600 }}>AI-generated draft — physician verification required.</span>
+        <span style={{ fontSize: 12.5, color: "#7A5A1E", fontWeight: 600 }}>{t("report.banner", "AI-generated draft — physician verification required.")}</span>
       </div>
 
       <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 16, padding: 26 }}>
-        <Section title="Patient information">
-          {user.name} · {user.gender || "—"} · Preferred language: English
+        <Section title={t("report.patientInfo", "Patient information")}>
+          {user.name} · {user.gender || "—"} · {t("profile.preferredLanguage", "Preferred language")}: {getLanguageLabel(language)}
         </Section>
-        <Section title="Chief complaint">
-          {has("chiefComplaint") ? answers.chiefComplaint : "Not yet recorded."}
+        <Section title={t("report.chiefComplaint", "Chief complaint")}>
+          {has("chiefComplaint") ? answers.chiefComplaint : t("report.notRecorded", "Not yet recorded.")}
         </Section>
-        <Section title="History of present illness">
-          Onset: {answers.onset || "—"} &nbsp;·&nbsp; Location: {answers.location || "—"} &nbsp;·&nbsp; Character: {answers.character || "—"}<br/>
-          Radiates: {answers.radiation || "—"} &nbsp;·&nbsp; Modifying factors: {answers.modifying || "—"}
+        <Section title={t("report.historyPresentIllness", "History of present illness")}>
+          {t("report.onset", "Onset")}: {answers.onset || "—"} &nbsp;·&nbsp; {t("report.location", "Location")}: {answers.location || "—"} &nbsp;·&nbsp; {t("report.character", "Character")}: {answers.character || "—"}<br/>
+          {t("report.radiates", "Radiates")}: {answers.radiation || "—"} &nbsp;·&nbsp; {t("report.modifying", "Modifying factors")}: {answers.modifying || "—"}
         </Section>
-        <Section title="Past medical history">{answers.pastMedical || "None reported."}</Section>
-        <Section title="Past surgical history">{answers.surgical || "None reported."}</Section>
-        <Section title="Current medications">{answers.medicines || "None reported."}</Section>
-        <Section title="Allergies">{answers.allergies || "None reported."}</Section>
-        <Section title="Family history">{answers.family || "None reported."}</Section>
-        <Section title="Personal history">{answers.personal || "—"}. {answers.lifestyle || ""}</Section>
-        <Section title="Review of systems">Breathing difficulty: {answers.breathing || "Not assessed"}. {answers.additional || ""}</Section>
-        <Section title="Previous investigations">
+        <Section title={t("report.pastMedicalHistory", "Past medical history")}>{answers.pastMedical || t("report.noneReported", "None reported.")}</Section>
+        <Section title={t("report.pastSurgicalHistory", "Past surgical history")}>{answers.surgical || t("report.noneReported", "None reported.")}</Section>
+        <Section title={t("report.currentMedications", "Current medications")}>{answers.medicines || t("report.noneReported", "None reported.")}</Section>
+        <Section title={t("report.allergies", "Allergies")}>{answers.allergies || t("report.noneReported", "None reported.")}</Section>
+        <Section title={t("report.familyHistory", "Family history")}>{answers.family || t("report.noneReported", "None reported.")}</Section>
+        <Section title={t("report.personalHistory", "Personal history")}>{answers.personal || "—"}. {answers.lifestyle || ""}</Section>
+        <Section title={t("report.reviewOfSystems", "Review of systems")}>{t("report.breathingDifficulty", "Breathing difficulty")}: {answers.breathing || t("report.notAssessed", "Not assessed")}. {answers.additional || ""}</Section>
+        <Section title={t("report.previousInvestigations", "Previous investigations")}>
           {documents.filter(d => d.extracted).map(d => (
             <div key={d.id} style={{ marginBottom: 6 }}>
               <strong>{d.name}</strong> ({d.date}): {Object.entries(d.extracted).map(([k, v]) => `${k} — ${v}`).join(", ")}
             </div>
           ))}
-          {documents.length === 0 && "No previous documents uploaded."}
+          {documents.length === 0 && t("report.noPreviousDocuments", "No previous documents uploaded.")}
         </Section>
 
         <div style={{ marginBottom: 4 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 700, color: RED, letterSpacing: ".02em", marginBottom: 8 }}>RED FLAG / ATTENTION ITEMS</div>
+          <div style={{ fontSize: 11.5, fontWeight: 700, color: RED, letterSpacing: ".02em", marginBottom: 8 }}>{t("report.attentionTitle", "RED FLAG / ATTENTION ITEMS")}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, background: RED_TINT, padding: "10px 14px", borderRadius: 8 }}>
             <ShieldAlert size={15} color={RED} />
             <span style={{ fontSize: 13, color: RED }}>
-              {has("chiefComplaint") ? "Chest discomfort reported — requires physician review." : "No urgent findings flagged from the interview so far."}
+              {has("chiefComplaint") ? t("report.chestWarning", "Chest discomfort reported — requires physician review.") : t("report.noUrgentFindings", "No urgent findings flagged from the interview so far.")}
             </span>
           </div>
         </div>
       </div>
 
       <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-        <GhostButton onClick={() => setEditing(e => !e)}><Edit3 size={14} /> {editing ? "Done editing" : "Edit report"}</GhostButton>
-        <PrimaryButton onClick={() => { setConfirmed(true); notify("Report confirmed for physician review.", "success"); }}>
-          <Check size={15} /> Confirm report
+        <GhostButton onClick={() => setEditing(e => !e)}><Edit3 size={14} /> {editing ? t("report.doneEditing", "Done editing") : t("report.editReport", "Edit report")}</GhostButton>
+        <PrimaryButton onClick={() => { setConfirmed(true); notify(t("report.reportConfirmed", "Report confirmed for physician review."), "success"); }}>
+          <Check size={15} /> {t("report.confirmReport", "Confirm report")}
         </PrimaryButton>
-        <GhostButton onClick={() => notify("PDF generation coming soon.", "info")}><Download size={14} /> Download PDF</GhostButton>
+        <GhostButton onClick={() => notify(t("report.downloadSoon", "PDF generation coming soon."), "info")}><Download size={14} /> {t("report.downloadPdf", "Download PDF")}</GhostButton>
       </div>
-      {confirmed && <p style={{ fontSize: 12.5, color: GREEN, marginTop: 10 }}>Confirmed and ready to share with your doctor.</p>}
-      {editing && <p style={{ fontSize: 12.5, color: SUB, marginTop: 10 }}>Prototype note: full inline editing of each field will be enabled in the production build — for now, revisit the AI history chat to change answers.</p>}
+      {confirmed && <p style={{ fontSize: 12.5, color: GREEN, marginTop: 10 }}>{t("report.confirmed", "Confirmed and ready to share with your doctor.")}</p>}
+      {editing && <p style={{ fontSize: 12.5, color: SUB, marginTop: 10 }}>{t("report.prototypeNote", "Prototype note: full inline editing of each field will be enabled in the production build — for now, revisit the AI history chat to change answers.")}</p>}
     </div>
   );
 }
 
-function ProfileScreen({ user, setUser, notify }) {
+function ProfileScreen({ user, setUser, notify, language, t }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState(user);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const initials = user.name.split(" ").map(w => w[0]).slice(0, 2).join("");
 
-  const save = () => { setUser(form); setEditing(false); notify("Profile updated.", "success"); };
+  const save = () => { setUser(form); setEditing(false); notify(t("profile.updated", "Profile updated."), "success"); };
 
   const Row = ({ label, field, disabled }) => (
     <div style={{ marginBottom: 12 }}>
@@ -958,38 +1027,38 @@ function ProfileScreen({ user, setUser, notify }) {
         <div>
           <div style={{ fontSize: 17, fontWeight: 600, color: INK }}>{user.name}</div>
           <div style={{ fontSize: 12.5, color: SUB }}>{user.email} · {user.mobile}</div>
-          <span style={{ fontSize: 11, fontWeight: 700, color: TEAL, background: TEAL_TINT, padding: "2px 8px", borderRadius: 999, marginTop: 4, display: "inline-block" }}>Patient</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: TEAL, background: TEAL_TINT, padding: "2px 8px", borderRadius: 999, marginTop: 4, display: "inline-block" }}>{t("profile.patient", "Patient")}</span>
         </div>
       </div>
 
       <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, padding: 20, marginBottom: 16 }}>
-        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>PERSONAL INFORMATION</h4>
+        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>{t("profile.title", "PERSONAL INFORMATION")}</h4>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          <Row label="Full name" field="name" />
-          <Row label="Date of birth" field="dob" />
-          <Row label="Gender" field="gender" />
-          <Row label="Phone" field="mobile" />
-          <Row label="Email" field="email" disabled />
-          <Row label="Address" field="address" />
+          <Row label={t("profile.fullName", "Full name")} field="name" />
+          <Row label={t("profile.dateOfBirth", "Date of birth")} field="dob" />
+          <Row label={t("profile.gender", "Gender")} field="gender" />
+          <Row label={t("profile.phone", "Phone")} field="mobile" />
+          <Row label={t("profile.email", "Email")} field="email" disabled />
+          <Row label={t("profile.address", "Address")} field="address" />
         </div>
       </div>
 
       <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, padding: 20, marginBottom: 16 }}>
-        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>HEALTHCARE INFORMATION</h4>
+        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>{t("profile.healthcareTitle", "HEALTHCARE INFORMATION")}</h4>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-          <Row label="ABHA ID" field="abha" />
-          <Row label="Blood group" field="bloodGroup" />
-          <Row label="Emergency contact" field="emergencyContact" />
+          <Row label={t("profile.abhaId", "ABHA ID")} field="abha" />
+          <Row label={t("profile.bloodGroup", "Blood group")} field="bloodGroup" />
+          <Row label={t("profile.emergencyContact", "Emergency contact")} field="emergencyContact" />
           <div>
-            <label style={{ fontSize: 12, color: SUB, display: "block", marginBottom: 4 }}>Preferred language</label>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: INK }}>English</div>
+            <label style={{ fontSize: 12, color: SUB, display: "block", marginBottom: 4 }}>{t("profile.preferredLanguage", "Preferred language")}</label>
+            <div style={{ fontSize: 13.5, fontWeight: 600, color: INK }}>{getLanguageLabel(language || "en")}</div>
           </div>
         </div>
       </div>
 
       <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, padding: 20, marginBottom: 20 }}>
-        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>CONSENT</h4>
-        {["Medical history consent", "Document processing consent", "Data sharing consent"].map(c => (
+        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>{t("profile.consentTitle", "CONSENT")}</h4>
+        {[t("profile.consentEntries.0", "Medical history consent"), t("profile.consentEntries.1", "Document processing consent"), t("profile.consentEntries.2", "Data sharing consent")].map(c => (
           <div key={c} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 13 }}>
             <CheckCircle2 size={14} color={GREEN} /> {c}
           </div>
@@ -997,15 +1066,15 @@ function ProfileScreen({ user, setUser, notify }) {
       </div>
 
       {editing ? (
-        <PrimaryButton onClick={save}><Check size={15} /> Save changes</PrimaryButton>
+        <PrimaryButton onClick={save}><Check size={15} /> {t("profile.saveChanges", "Save changes")}</PrimaryButton>
       ) : (
-        <GhostButton onClick={() => { setForm(user); setEditing(true); }}><Edit3 size={14} /> Edit profile</GhostButton>
+        <GhostButton onClick={() => { setForm(user); setEditing(true); }}><Edit3 size={14} /> {t("profile.editProfile", "Edit profile")}</GhostButton>
       )}
     </div>
   );
 }
 
-function SettingsScreen({ language, setLanguage, notify }) {
+function SettingsScreen({ language, setLanguage, notify, t }) {
   const [a11y, setA11y] = useState({ large: false, contrast: false, voice: true });
   const Toggle = ({ on, onClick }) => (
     <button onClick={onClick} style={{ width: 40, height: 22, borderRadius: 999, border: "none", cursor: "pointer", background: on ? TEAL : "#D8DEDC", position: "relative" }}>
@@ -1014,13 +1083,13 @@ function SettingsScreen({ language, setLanguage, notify }) {
   );
   return (
     <div style={{ padding: 28, maxWidth: 560 }}>
-      <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: "0 0 20px" }}>Settings</h1>
+      <h1 className="mk-display" style={{ fontSize: 22, fontWeight: 600, color: INK, margin: "0 0 20px" }}>{t("settings.title", "Settings")}</h1>
 
       <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, padding: 20, marginBottom: 16 }}>
-        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>LANGUAGE</h4>
+        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>{t("settings.languageSection", "LANGUAGE")}</h4>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {LANGS.map(l => (
-            <button key={l.code} onClick={() => { setLanguage(l.code); notify(`Language set to ${l.native}.`, "success"); }}
+            <button key={l.code} onClick={() => { setLanguage(l.code); notify(`${t("settings.languageSet", "Language set to")} ${l.native}.`, "success"); }}
               style={{ padding: "8px 14px", borderRadius: 9, border: `1px solid ${language === l.code ? TEAL : BORDER}`, background: language === l.code ? TEAL_TINT : "#fff", color: language === l.code ? TEAL : INK, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
               {l.native}
             </button>
@@ -1029,8 +1098,8 @@ function SettingsScreen({ language, setLanguage, notify }) {
       </div>
 
       <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, padding: 20, marginBottom: 16 }}>
-        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>ACCESSIBILITY</h4>
-        {[["large", "Large text"], ["contrast", "High contrast"], ["voice", "Voice assistance"]].map(([k, label]) => (
+        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>{t("settings.accessibilitySection", "ACCESSIBILITY")}</h4>
+        {[["large", t("settings.largeText", "Large text")], ["contrast", t("settings.highContrast", "High contrast")], ["voice", t("settings.voiceAssistance", "Voice assistance")]].map(([k, label]) => (
           <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0" }}>
             <span style={{ fontSize: 13.5, color: INK }}>{label}</span>
             <Toggle on={a11y[k]} onClick={() => setA11y(s => ({ ...s, [k]: !s[k] }))} />
@@ -1039,18 +1108,18 @@ function SettingsScreen({ language, setLanguage, notify }) {
       </div>
 
       <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, padding: 20 }}>
-        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>PRIVACY</h4>
-        <button onClick={() => notify("Showing your current consent record.", "info")} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "8px 0", fontSize: 13.5, color: INK, cursor: "pointer" }}>View consent</button>
-        <button onClick={() => notify("Consent withdrawal noted for this prototype.", "info")} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "8px 0", fontSize: 13.5, color: RED, cursor: "pointer" }}>Withdraw consent</button>
+        <h4 style={{ fontSize: 13, fontWeight: 700, color: TEAL, margin: "0 0 12px" }}>{t("settings.privacySection", "PRIVACY")}</h4>
+        <button onClick={() => notify(t("settings.showingConsent", "Showing your current consent record."), "info")} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "8px 0", fontSize: 13.5, color: INK, cursor: "pointer" }}>{t("settings.viewConsent", "View consent")}</button>
+        <button onClick={() => notify(t("settings.withdrawnConsent", "Consent withdrawal noted for this prototype."), "info")} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", padding: "8px 0", fontSize: 13.5, color: RED, cursor: "pointer" }}>{t("settings.withdrawConsent", "Withdraw consent")}</button>
       </div>
     </div>
   );
 }
 
-function Footer() {
+function Footer({ t }) {
   return (
     <div style={{ padding: "14px 28px", borderTop: `1px solid ${BORDER}`, fontSize: 11.5, color: "#93A29D", background: "#fff" }}>
-      MediKiosk is a clinical intake and record organization prototype. It does not provide autonomous medical diagnosis. All information and AI-generated summaries must be reviewed by a qualified healthcare professional.
+      {t("footer.disclaimer", "MediKiosk is a clinical intake and record organization prototype. It does not provide autonomous medical diagnosis. All information and AI-generated summaries must be reviewed by a qualified healthcare professional.")}
     </div>
   );
 }
@@ -1059,13 +1128,34 @@ export default function MediKiosk() {
   const [stage, setStage] = useState("login");
   const [users, setUsers] = useState([DEMO_USER]);
   const [user, setUser] = useState(null);
-  const [language, setLanguage] = useState("en");
+  const [language, setLanguageValue] = useState("en");
   const [screen, setScreen] = useState("dashboard");
   const [documents, setDocuments] = useState([]);
   const [answers, setAnswers] = useState({});
   const [qIndex, setQIndex] = useState(0);
   const [messages, setMessages] = useState([]);
   const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedLanguage = getStoredLanguage();
+      if (savedLanguage && LOCALES[savedLanguage]) {
+        setLanguageValue(savedLanguage);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEY, language);
+    }
+  }, [language]);
+
+  const t = (key, fallback = key) => safeTranslate(language, key, fallback);
+
+  const setLanguage = (code) => {
+    if (LOCALES[code]) setLanguageValue(code);
+  };
 
   const notify = (message, type = "success") => {
     setToast({ message, type });
@@ -1074,28 +1164,29 @@ export default function MediKiosk() {
 
   const handleLogin = (u, isDemo) => {
     setUser(u);
-    if (isDemo) { setDocuments(DEMO_DOCS); notify("Signed in as demo patient.", "success"); }
-    else notify(`Welcome back, ${u.name.split(" ")[0]}.`, "success");
+    if (isDemo) { setDocuments(DEMO_DOCS); notify(t("auth.signedInDemo", "Signed in as demo patient."), "success"); }
+    else notify(`${t("auth.welcomeBackName", "Welcome back")}, ${u.name.split(" ")[0]}.`, "success");
     setStage("consent");
   };
 
   const handleRegister = (form) => {
     setUsers(u => [...u, { ...form, name: form.name }]);
-    notify("Account created. Please sign in.", "success");
+    notify(t("auth.accountCreated", "Account created. Please sign in."), "success");
     setStage("login");
   };
 
   const handleConsent = () => setStage("language");
-  const handleDecline = () => notify("Consent is required to continue.", "error");
+  const handleDecline = () => notify(t("consent.consentRequired", "Consent is required to continue."), "error");
   const handleLanguage = (code) => { setLanguage(code); setStage("app"); setScreen("dashboard"); };
 
   const logout = () => {
     setStage("login"); setUser(null); setScreen("dashboard");
     setAnswers({}); setQIndex(0); setMessages([]); setDocuments([]);
-    notify("Signed out.", "info");
+    notify(t("common.logout", "Signed out."), "info");
   };
 
-  const chatDone = qIndex >= QUESTIONS.length;
+  const interviewQuestions = getLocalizedQuestions(language);
+  const chatDone = qIndex >= interviewQuestions.length;
   const progressPct = Math.round((3 + (chatDone ? 1 : 0) + (documents.length > 0 ? 1 : 0) + (chatDone && documents.length > 0 ? 1 : 0)) / 6 * 100);
 
   return (
@@ -1104,33 +1195,33 @@ export default function MediKiosk() {
       <Toast {...toast} onClose={() => setToast(null)} />
 
       {stage === "login" && (
-        <AuthLayout><LoginScreen users={users} onLogin={handleLogin} onGoRegister={() => setStage("register")} notify={notify} /></AuthLayout>
+        <AuthLayout t={t}><LoginScreen users={users} onLogin={handleLogin} onGoRegister={() => setStage("register")} notify={notify} t={t} /></AuthLayout>
       )}
       {stage === "register" && (
-        <AuthLayout><RegisterScreen onRegister={handleRegister} onGoLogin={() => setStage("login")} /></AuthLayout>
+        <AuthLayout t={t}><RegisterScreen onRegister={handleRegister} onGoLogin={() => setStage("login")} t={t} /></AuthLayout>
       )}
-      {stage === "consent" && <ConsentScreen onAccept={handleConsent} onDecline={handleDecline} />}
-      {stage === "language" && <LanguageScreen onContinue={handleLanguage} />}
+      {stage === "consent" && <ConsentScreen onAccept={handleConsent} onDecline={handleDecline} t={t} />}
+      {stage === "language" && <LanguageScreen onContinue={handleLanguage} language={language} t={t} />}
 
       {stage === "app" && user && (
         <div style={{ display: "flex" }}>
-          <Sidebar screen={screen} setScreen={setScreen} onLogout={logout} />
+          <Sidebar screen={screen} setScreen={setScreen} onLogout={logout} t={t} />
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
-            <TopBar title={NAV.find(n => n.key === screen)?.label || ""} user={user} language={language} setLanguage={setLanguage} />
+            <TopBar title={getNavItems(t).find(n => n.key === screen)?.label || ""} user={user} language={language} setLanguage={setLanguage} t={t} />
             <div style={{ flex: 1 }}>
-              {screen === "dashboard" && <Dashboard user={user} setScreen={setScreen} chatDone={chatDone} docsCount={documents.length} progressPct={progressPct} />}
+              {screen === "dashboard" && <Dashboard user={user} setScreen={setScreen} chatDone={chatDone} docsCount={documents.length} progressPct={progressPct} language={language} t={t} />}
               {screen === "chat" && (
                 <ChatScreen user={user} language={language} answers={answers} setAnswers={setAnswers}
                   qIndex={qIndex} setQIndex={setQIndex} messages={messages} setMessages={setMessages}
-                  onFinish={() => setScreen("upload")} />
+                  onFinish={() => setScreen("upload")} t={t} />
               )}
-              {screen === "upload" && <UploadScreen documents={documents} setDocuments={setDocuments} notify={notify} />}
-              {screen === "timeline" && <TimelineScreen events={documents.length ? TIMELINE_SEED : TIMELINE_SEED.slice(2)} />}
-              {screen === "report" && <ReportScreen user={user} answers={answers} documents={documents} notify={notify} />}
-              {screen === "profile" && <ProfileScreen user={user} setUser={setUser} notify={notify} />}
-              {screen === "settings" && <SettingsScreen language={language} setLanguage={setLanguage} notify={notify} />}
+              {screen === "upload" && <UploadScreen documents={documents} setDocuments={setDocuments} notify={notify} language={language} t={t} />}
+              {screen === "timeline" && <TimelineScreen events={documents.length ? TIMELINE_SEED : TIMELINE_SEED.slice(2)} language={language} t={t} />}
+              {screen === "report" && <ReportScreen user={user} answers={answers} documents={documents} notify={notify} language={language} t={t} />}
+              {screen === "profile" && <ProfileScreen user={user} setUser={setUser} notify={notify} language={language} t={t} />}
+              {screen === "settings" && <SettingsScreen language={language} setLanguage={setLanguage} notify={notify} t={t} />}
             </div>
-            <Footer />
+            <Footer t={t} />
           </div>
         </div>
       )}

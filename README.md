@@ -242,4 +242,8 @@ Not implemented here, but the natural next steps for a production build:
 - A backend + database (replacing `localStorage`) with proper authentication and
   encryption for health data at rest and in transit.
 - A physician-facing review/edit interface with audit history on report changes.
+<<<<<<< HEAD
 - Real PDF export/print of the confirmed report.
+=======
+- Real PDF export/print of the confirmed report.
+>>>>>>> c44784c (Added multilingual added)
