@@ -128,8 +128,8 @@ const TIMELINE_SEED = [
 ];
 
 const QUESTION_DEFS = [
-  { field: "chiefComplaint", sectionKey: "questions.sections.chiefComplaint", sectionFallback: "Chief Complaint", questionKey: "questions.chiefComplaint", questionFallback: "Hello Ishwari. What brings you to the hospital today?", type: "text", mockKey: "questions.mocks.chiefComplaint", mockFallback: "I have chest pain since yesterday evening." },
-  { field: "onset", sectionKey: "questions.sections.historyIllness", sectionFallback: "History of Present Illness", questionKey: "questions.onset", questionFallback: "I understand. When did the chest pain start?", type: "quick", optionKeys: [["questions.options.today", "Today"], ["questions.options.yesterday", "Yesterday"], ["questions.options.thisWeek", "This week"], ["questions.options.longerAgo", "Longer ago"]] },
+  { field: "chiefComplaint", sectionKey: "questions.sections.chiefComplaint", sectionFallback: "Chief Complaint", questionKey: "questions.chiefComplaint", questionFallback: "Hello Ishwari. What brings you to the hospital today?", type: "text", mockKey: "questions.mocks.chiefComplaint", mockFallback: "I have pain since yesterday evening." },
+  { field: "onset", sectionKey: "questions.sections.historyIllness", sectionFallback: "History of Present Illness", questionKey: "questions.onset", questionFallback: "I understand. When did the pain start?", type: "quick", optionKeys: [["questions.options.today", "Today"], ["questions.options.yesterday", "Yesterday"], ["questions.options.thisWeek", "This week"], ["questions.options.longerAgo", "Longer ago"]] },
   { field: "location", sectionKey: "questions.sections.historyIllness", sectionFallback: "History of Present Illness", questionKey: "questions.location", questionFallback: "Where exactly do you feel the pain?", type: "text", mockKey: "questions.mocks.location", mockFallback: "Center of my chest, slightly to the left." },
   { field: "character", sectionKey: "questions.sections.historyIllness", sectionFallback: "History of Present Illness", questionKey: "questions.character", questionFallback: "How would you describe the pain?", type: "quick", optionKeys: [["questions.options.pressure", "Pressure"], ["questions.options.sharp", "Sharp"], ["questions.options.burning", "Burning"], ["questions.options.dull", "Dull"], ["questions.options.other", "Other"]] },
   { field: "radiation", sectionKey: "questions.sections.historyIllness", sectionFallback: "History of Present Illness", questionKey: "questions.radiation", questionFallback: "Does the pain spread to your arm, shoulder, back or jaw?", type: "quick", optionKeys: [["questions.options.yes", "Yes"], ["questions.options.no", "No"], ["questions.options.notSure", "Not sure"]] },
@@ -802,24 +802,170 @@ function ChatScreen({ user, language, answers, setAnswers, qIndex, setQIndex, me
   );
 }
 
+const toSummaryItems = value => value == null || value === "" ? [] : Array.isArray(value) ? value : [value];
+
+const getSummaryText = value => {
+  if (typeof value === "string" || typeof value === "number") return String(value).trim();
+  if (!value || typeof value !== "object") return "";
+  return [value.name, value.value, value.diagnosis, value.test_name, value.test, value.result, value.allergen, value.instruction, value.advice]
+    .find(item => item != null && item !== "")?.toString().trim() || "";
+};
+
+const normalizeDiagnosis = value => {
+  const phrase = getSummaryText(value).replace(/\s+/g, " ").replace(/[.!?]+$/, "");
+  if (!phrase) return "";
+  return phrase.toLowerCase()
+    .replace(/^([a-z])/, letter => letter.toUpperCase())
+    .replace(/\b(hiv|aids|copd|tb|gerd|uti|dvt|ckd)\b/gi, acronym => acronym.toUpperCase());
+};
+
+const normalizeFrequency = value => {
+  const frequency = getSummaryText(value).toLowerCase().replace(/\s+/g, " ");
+  const numberWords = { one: "1", two: "2", three: "3", four: "4" };
+  const timesPerDay = frequency.match(/^(\d+|one|two|three|four)\s+times?\s+(?:a day|daily)$/);
+  if (timesPerDay) return `${numberWords[timesPerDay[1]] || timesPerDay[1]} times/day`;
+
+  const daily = frequency.match(/^(once|twice|thrice)\s+(?:daily|a day)(\s+at night)?$/);
+  if (daily) return `${daily[1]}/day${daily[2] || ""}`;
+  return frequency;
+};
+
+const getDocumentSummary = document => {
+  const response = document.apiResponse || {};
+  const result = document.result || response.result || {};
+  const information = document.extracted_information || response.extracted_information || {};
+  const legacy = document.extracted || {};
+  const firstAvailable = (...values) => values.find(value => value != null
+    && value !== ""
+    && (!Array.isArray(value) || value.length > 0)
+    && (typeof value !== "object" || Array.isArray(value) || Object.keys(value).length > 0));
+
+  const diagnosisSource = firstAvailable(result.diagnoses, result.diagnosis, information.diagnosis, legacy.Diagnosis);
+  const diagnosis = toSummaryItems(diagnosisSource).map(normalizeDiagnosis).find(Boolean) || "";
+  const medicationSource = firstAvailable(result.medications, information.medications, legacy.Medicines);
+  const seenMedications = new Set();
+  const medications = toSummaryItems(medicationSource).map(item => {
+    if (typeof item === "string") {
+      const text = item.trim();
+      return { key: text.toLowerCase(), text };
+    }
+    const name = getSummaryText(item?.medication || item?.name);
+    const strength = getSummaryText(item?.strength);
+    const frequency = normalizeFrequency(item?.frequency);
+    const duration = getSummaryText(item?.duration);
+    const details = [name, strength, frequency, duration].filter(Boolean);
+    return { key: `${name.toLowerCase()}|${strength.toLowerCase()}`, text: details.join(" — ") };
+  }).filter(item => {
+    if (!item.text || seenMedications.has(item.key)) return false;
+    seenMedications.add(item.key);
+    return true;
+  });
+
+  const knownLabNames = new Set(["blood pressure", "blood sugar", "cbc", "glucose", "haemoglobin", "hemoglobin", "hba1c"]);
+  const legacyLabs = Object.entries(legacy)
+    .filter(([name]) => knownLabNames.has(name.toLowerCase()))
+    .map(([name, value]) => ({ name, value }));
+  const labSource = firstAvailable(result.lab_results, information.lab_results, legacyLabs);
+  const labResults = toSummaryItems(labSource).map(item => {
+    if (typeof item === "string" || typeof item === "number") return String(item).trim();
+    const name = getSummaryText(item?.test_name || item?.test || item?.name || item?.lab_test);
+    const value = getSummaryText(item?.value || item?.result);
+    const unit = getSummaryText(item?.unit);
+    const measurement = [value, unit].filter(Boolean).join(" ");
+    return [name, measurement].filter(Boolean).join(": ");
+  }).filter(Boolean);
+
+  const allergies = toSummaryItems(firstAvailable(result.allergies, information.allergies))
+    .map(getSummaryText).filter(Boolean);
+  const adviceSource = firstAvailable(result.advice, result.doctor_notes, information.advice, information.doctor_notes);
+  const advice = toSummaryItems(adviceSource).map(getSummaryText)
+    .filter(value => value && !/^advice\s*:?$/i.test(value));
+  const followUp = getSummaryText(firstAvailable(result.follow_up, information.follow_up));
+  const doctor = getSummaryText(firstAvailable(
+    result.document?.doctor,
+    result.doctor?.name,
+    information.document?.doctor,
+    information.doctor?.name,
+    information.doctor,
+    legacy.Doctor,
+  ));
+  const date = getSummaryText(firstAvailable(result.document?.date, information.document?.date, legacy.Date));
+  const warnings = toSummaryItems(firstAvailable(document.warnings, response.warnings));
+  const hasSummaryData = Boolean(diagnosis || medications.length || doctor || date || labResults.length || allergies.length || advice.length || followUp);
+  const needsReview = document.status === "needs_review"
+    || document.backendStatus === "needs_review"
+    || response.status === "needs_review"
+    || result.status === "needs_review"
+    || result.needs_review === true
+    || warnings.length > 0
+    || (!hasSummaryData && document.status !== "failed");
+
+  return {
+    diagnosis,
+    medications,
+    doctor,
+    date,
+    labResults,
+    allergies,
+    advice,
+    followUp,
+    needsReview,
+    rawOcrText: document.raw_ocr_text || response.raw_ocr_text || result.raw_ocr_text || result.raw_text || "",
+  };
+};
+
 function UploadScreen({ documents, setDocuments, notify, language, t }) {
   const [dragOver, setDragOver] = useState(false);
   const [viewDoc, setViewDoc] = useState(null);
   const fileRef = useRef(null);
+  const summary = viewDoc ? getDocumentSummary(viewDoc) : null;
 
   const handleFiles = (files) => {
     const list = Array.from(files || []);
-    list.forEach((f, i) => {
-      const id = "u" + Date.now() + i;
-      const doc = { id, name: f.name, date: t("upload.uploadedToday", "Today"), status: "analyzing" };
+    list.forEach((file, index) => {
+      const id = "u" + Date.now() + index;
+      const doc = { id, name: file.name, date: t("upload.uploadedToday", "Today"), status: "processing" };
       setDocuments(d => [...d, doc]);
-      setTimeout(() => {
-        setDocuments(d => d.map(x => x.id === id ? {
-          ...x, status: "processed",
-          extracted: { Diagnosis: "Seasonal fever", Medicines: "Paracetamol 500 mg", Doctor: "Dr. Patel" }
-        } : x));
-        notify(`${f.name} processed`, "success");
-      }, 1800);
+
+      const headers = new Headers();
+      headers.append("Accept", "application/json");
+      const formData = new FormData();
+      formData.append("file", file);
+      const apiBaseUrl = (process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8001").replace(/\/+$/, "");
+
+      fetch(`${apiBaseUrl}/documents/extract`, {
+        method: "POST",
+        body: formData,
+        headers,
+      })
+        .then(async response => {
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload?.detail || payload?.result?.error || "Unable to reliably extract information from this document.");
+          }
+
+          const result = payload?.result || {};
+          setDocuments(d => d.map(x => x.id === id ? {
+            ...x,
+            status: result?.needs_review === true ? "needs_review" : "processed",
+            backendStatus: payload?.status,
+            warnings: payload?.warnings,
+            raw_ocr_text: payload?.raw_ocr_text,
+            extracted_information: payload?.extracted_information,
+            result: payload?.result,
+            apiResponse: payload,
+            extracted: payload?.extracted_information ?? payload?.result,
+          } : x));
+          notify(`${file.name} processed`, "success");
+        })
+        .catch(error => {
+          setDocuments(d => d.map(x => x.id === id ? {
+            ...x,
+            status: "failed",
+            error: error.message || "Unable to reliably extract information from this document.",
+          } : x));
+          notify(error.message || "Unable to reliably extract information from this document.", "error");
+        });
     });
   };
 
@@ -854,16 +1000,24 @@ function UploadScreen({ documents, setDocuments, notify, language, t }) {
               <div style={{ fontSize: 13.5, fontWeight: 600, color: INK }}>{doc.name}</div>
               <div style={{ fontSize: 12, color: SUB }}>{doc.date}</div>
             </div>
-            {doc.status === "analyzing" ? (
+            {doc.status === "processing" ? (
               <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: AMBER }}>
-                <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> {t("upload.analyzing", "Analyzing document…")}
+                <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} /> Processing...
+              </span>
+            ) : doc.status === "needs_review" ? (
+              <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, color: AMBER, fontWeight: 600 }}>
+                <ShieldAlert size={14} /> Needs review
+              </span>
+            ) : doc.status === "failed" ? (
+              <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, color: RED, fontWeight: 600 }}>
+                <ShieldAlert size={14} /> Failed
               </span>
             ) : (
               <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12.5, color: GREEN, fontWeight: 600 }}>
                 <CheckCircle2 size={14} /> {t("upload.processed", "Processed")}
               </span>
             )}
-            <button onClick={() => setViewDoc(doc)} disabled={doc.status !== "processed"} style={{ background: "none", border: "none", cursor: doc.status === "processed" ? "pointer" : "default", color: SUB }}><Eye size={16} /></button>
+            <button onClick={() => setViewDoc(doc)} disabled={doc.status === "processing"} style={{ background: "none", border: "none", cursor: doc.status === "processing" ? "not-allowed" : "pointer", color: SUB }}><Eye size={16} /></button>
             <button onClick={() => setDocuments(d => d.filter(x => x.id !== doc.id))} style={{ background: "none", border: "none", cursor: "pointer", color: RED }}><Trash2 size={16} /></button>
           </div>
         ))}
@@ -872,13 +1026,83 @@ function UploadScreen({ documents, setDocuments, notify, language, t }) {
 
       {viewDoc && (
         <Modal onClose={() => setViewDoc(null)} title={viewDoc.name}>
-          <div style={{ fontSize: 12.5, color: SUB, marginBottom: 10 }}>{viewDoc.date}</div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: TEAL, marginBottom: 8 }}>{t("upload.extractedInfo", "EXTRACTED INFORMATION")}</div>
-          {Object.entries(viewDoc.extracted || {}).map(([k, v]) => (
-            <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: `1px solid ${BORDER}`, fontSize: 13 }}>
-              <span style={{ color: SUB }}>{k}</span><span style={{ fontWeight: 600, color: INK }}>{v}</span>
+          {viewDoc.error && (
+            <div style={{ background: RED_TINT, borderRadius: 10, padding: "10px 12px", color: RED, fontWeight: 600, marginBottom: 14 }}>
+              {viewDoc.error}
             </div>
-          ))}
+          )}
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: TEAL, marginBottom: 8 }}>{t("upload.extractedInfo", "EXTRACTED INFORMATION")}</div>
+          <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
+            {summary.needsReview && (
+              <div style={{ background: "#FFF4DF", borderRadius: 8, padding: "8px 10px", color: AMBER, fontSize: 12.5, fontWeight: 600, marginBottom: 10 }}>
+                Needs review
+              </div>
+            )}
+            {summary.diagnosis && (
+              <div style={{ padding: "7px 0", borderBottom: `1px solid ${BORDER}`, fontSize: 13 }}>
+                <div style={{ color: SUB, fontWeight: 600, marginBottom: 3 }}>Diagnosis</div>
+                <div style={{ color: INK }}>{summary.diagnosis}</div>
+              </div>
+            )}
+            {summary.medications.length > 0 && (
+              <div style={{ padding: "7px 0", borderBottom: `1px solid ${BORDER}`, fontSize: 13 }}>
+                <div style={{ color: SUB, fontWeight: 600, marginBottom: 3 }}>Medicines</div>
+                <ul style={{ color: INK, margin: 0, paddingLeft: 18 }}>
+                  {summary.medications.map((medication, index) => <li key={`${medication.key}-${index}`}>{medication.text}</li>)}
+                </ul>
+              </div>
+            )}
+            {summary.doctor && (
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: `1px solid ${BORDER}`, fontSize: 13 }}>
+                <span style={{ color: SUB }}>Doctor</span><span style={{ color: INK, fontWeight: 600, textAlign: "right" }}>{summary.doctor}</span>
+              </div>
+            )}
+            {summary.date && (
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "7px 0", borderBottom: `1px solid ${BORDER}`, fontSize: 13 }}>
+                <span style={{ color: SUB }}>Date</span><span style={{ color: INK, fontWeight: 600, textAlign: "right" }}>{summary.date}</span>
+              </div>
+            )}
+            {summary.labResults.length > 0 && (
+              <div style={{ padding: "7px 0", borderBottom: `1px solid ${BORDER}`, fontSize: 13 }}>
+                <div style={{ color: SUB, fontWeight: 600, marginBottom: 3 }}>Lab results</div>
+                <ul style={{ color: INK, margin: 0, paddingLeft: 18 }}>
+                  {summary.labResults.map((result, index) => <li key={`${result}-${index}`}>{result}</li>)}
+                </ul>
+              </div>
+            )}
+            {summary.allergies.length > 0 && (
+              <div style={{ padding: "7px 0", borderBottom: `1px solid ${BORDER}`, fontSize: 13 }}>
+                <div style={{ color: SUB, fontWeight: 600, marginBottom: 3 }}>Allergies</div>
+                <div style={{ color: INK }}>{summary.allergies.join(", ")}</div>
+              </div>
+            )}
+            {summary.advice.length > 0 && (
+              <div style={{ padding: "7px 0", borderBottom: `1px solid ${BORDER}`, fontSize: 13 }}>
+                <div style={{ color: SUB, fontWeight: 600, marginBottom: 3 }}>Instructions</div>
+                <ul style={{ color: INK, margin: 0, paddingLeft: 18 }}>
+                  {summary.advice.map((instruction, index) => <li key={`${instruction}-${index}`}>{instruction}</li>)}
+                </ul>
+              </div>
+            )}
+            {summary.followUp && (
+              <div style={{ padding: "7px 0", fontSize: 13 }}>
+                <div style={{ color: SUB, fontWeight: 600, marginBottom: 3 }}>Follow-up</div>
+                <div style={{ color: INK }}>{summary.followUp}</div>
+              </div>
+            )}
+            {!summary.diagnosis && summary.medications.length === 0 && !summary.doctor && !summary.date
+              && summary.labResults.length === 0 && summary.allergies.length === 0 && summary.advice.length === 0 && !summary.followUp && (
+                <div style={{ color: SUB, fontSize: 13, padding: "7px 0" }}>No structured clinical information available.</div>
+              )}
+          </div>
+          {summary.rawOcrText && (
+            <details style={{ marginTop: 12, borderTop: `1px solid ${BORDER}`, paddingTop: 10 }}>
+              <summary style={{ color: TEAL, cursor: "pointer", fontSize: 12.5, fontWeight: 600 }}>View OCR details</summary>
+              <pre style={{ maxHeight: 220, overflowY: "auto", whiteSpace: "pre-wrap", overflowWrap: "anywhere", font: "inherit", color: SUB, fontSize: 11.5, margin: "8px 0 0" }}>
+                {summary.rawOcrText}
+              </pre>
+            </details>
+          )}
         </Modal>
       )}
     </div>
@@ -930,7 +1154,132 @@ function TimelineScreen({ events, language, t }) {
 function ReportScreen({ user, answers, documents, notify, language, t }) {
   const [editing, setEditing] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   const has = f => answers[f] && answers[f] !== "Skip";
+
+  const downloadMedicalReport = async () => {
+    setGeneratingPdf(true);
+    try {
+      const { jsPDF } = await import("jspdf");
+      const pdf = new jsPDF();
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 18;
+      const contentBottom = pageHeight - 22;
+      const lineHeight = size => size * 0.3528 * 1.35;
+      let y = margin;
+
+      const addPageIfNeeded = (height = lineHeight(10)) => {
+        if (y + height > contentBottom) {
+          pdf.addPage();
+          y = margin;
+        }
+      };
+
+      const addText = (value, { size = 10, bold = false, color = [18, 35, 31], gap = 0 } = {}) => {
+        pdf.setFont("helvetica", bold ? "bold" : "normal");
+        pdf.setFontSize(size);
+        pdf.setTextColor(...color);
+        const lines = pdf.splitTextToSize(String(value ?? ""), pageWidth - margin * 2);
+        const height = lineHeight(size);
+        lines.forEach(line => {
+          addPageIfNeeded(height);
+          pdf.text(line, margin, y);
+          y += height;
+        });
+        y += gap;
+      };
+
+      const addSection = (title, fields) => {
+        addText(title, { size: 12, bold: true, color: [14, 110, 99], gap: 1 });
+        fields.forEach(([label, value]) => addText(`${label}: ${value}`));
+        y += 3;
+      };
+
+      const birthDate = user.dob ? new Date(`${user.dob}T00:00:00`) : null;
+      let age = "—";
+      if (birthDate && !Number.isNaN(birthDate.getTime())) {
+        const today = new Date();
+        age = today.getFullYear() - birthDate.getFullYear()
+          - (today.getMonth() < birthDate.getMonth()
+            || (today.getMonth() === birthDate.getMonth() && today.getDate() < birthDate.getDate()) ? 1 : 0);
+      }
+
+      const notRecorded = t("report.notRecorded", "Not yet recorded.");
+      const noneReported = t("report.noneReported", "None reported.");
+      const optionalValue = field => has(field) ? answers[field] : notRecorded;
+      const clinicalFields = [
+        ["Chief Complaint", optionalValue("chiefComplaint")],
+        ["Onset", answers.onset || "—"],
+        ["Location", answers.location || "—"],
+        ["Character", answers.character || "—"],
+        ["Radiation", answers.radiation || "—"],
+        ["Modifying factors", answers.modifying || "—"],
+        ["Past medical history", answers.pastMedical || noneReported],
+        ["Past surgical history", answers.surgical || noneReported],
+        ["Family history", answers.family || noneReported],
+        ["Personal history", `${answers.personal || "—"}${answers.lifestyle ? `. ${answers.lifestyle}` : ""}`],
+        ["Allergies", answers.allergies || noneReported],
+        ["Current medications", answers.medicines || noneReported],
+        ["Breathing difficulty", answers.breathing || t("report.notAssessed", "Not assessed")],
+        ["Other information", answers.additional || notRecorded],
+      ];
+
+      addText("MEDIKIOSK", { size: 18, bold: true, color: [14, 110, 99], gap: 1 });
+      addText("AI Clinical Intake & Patient Record Intelligence", { size: 10, color: [91, 110, 105], gap: 5 });
+      addText("Medical Report", { size: 16, bold: true, gap: 6 });
+      addSection("Patient Information", [
+        ["Patient Name", user.name || "—"],
+        ["Age", age === "—" ? age : `${age} years`],
+        ["Gender", user.gender || "—"],
+        ["Date", new Date().toLocaleDateString(language)],
+        ["Preferred language", getLanguageLabel(language)],
+      ]);
+      addSection("Clinical Information", clinicalFields);
+
+      const extractedDocuments = documents.filter(document => document.extracted);
+      addText("Previous Medical Documents", { size: 12, bold: true, color: [14, 110, 99], gap: 1 });
+      if (extractedDocuments.length) {
+        extractedDocuments.forEach(document => {
+          addText(`${document.name} (${document.date})`, { bold: true });
+          Object.entries(document.extracted).forEach(([label, value]) => addText(`${label}: ${value}`));
+        });
+      } else {
+        addText(documents.length === 0
+          ? t("report.noPreviousDocuments", "No previous documents uploaded.")
+          : "No verified extracted information available.");
+      }
+      y += 3;
+
+      const summary = clinicalFields
+        .filter(([, value]) => value !== notRecorded && value !== noneReported && value !== "—")
+        .map(([label, value]) => `${label}: ${value}`);
+      addSection("Clinical Summary", [
+        ["Summary", summary.length ? summary.join("; ") : "No consultation details have been recorded."],
+      ]);
+      addText("Review Status: Needs Doctor Verification", { size: 11, bold: true, color: [177, 105, 25], gap: 4 });
+
+      const pageCount = pdf.getNumberOfPages();
+      for (let page = 1; page <= pageCount; page += 1) {
+        pdf.setPage(page);
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8);
+        pdf.setTextColor(120, 130, 127);
+        pdf.text(`Page ${page} of ${pageCount}`, pageWidth / 2, pageHeight - 9, { align: "center" });
+      }
+
+      const safeName = (user.name || "Patient")
+        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "")
+        .replace(/\s+/g, "_")
+        .replace(/^\.+|\.+$/g, "") || "Patient";
+      pdf.save(`MediKiosk_Medical_Report_${safeName}.pdf`);
+    } catch (error) {
+      console.error("Unable to generate medical report PDF:", error);
+      notify(t("report.downloadFailed", "Unable to generate the medical report PDF."), "error");
+    } finally {
+      setGeneratingPdf(false);
+    }
+  };
 
   const Section = ({ title, children }) => (
     <div style={{ marginBottom: 18 }}>
@@ -992,7 +1341,10 @@ function ReportScreen({ user, answers, documents, notify, language, t }) {
         <PrimaryButton onClick={() => { setConfirmed(true); notify(t("report.reportConfirmed", "Report confirmed for physician review."), "success"); }}>
           <Check size={15} /> {t("report.confirmReport", "Confirm report")}
         </PrimaryButton>
-        <GhostButton onClick={() => notify(t("report.downloadSoon", "PDF generation coming soon."), "info")}><Download size={14} /> {t("report.downloadPdf", "Download PDF")}</GhostButton>
+        <button type="button" disabled={generatingPdf} onClick={downloadMedicalReport}
+          style={{ background: "#fff", color: INK, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "12px 20px", fontWeight: 600, fontSize: 14, cursor: generatingPdf ? "not-allowed" : "pointer", opacity: generatingPdf ? 0.65 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <Download size={14} /> {generatingPdf ? t("report.generatingPdf", "Generating PDF...") : t("report.downloadPdf", "Download PDF")}
+        </button>
       </div>
       {confirmed && <p style={{ fontSize: 12.5, color: GREEN, marginTop: 10 }}>{t("report.confirmed", "Confirmed and ready to share with your doctor.")}</p>}
       {editing && <p style={{ fontSize: 12.5, color: SUB, marginTop: 10 }}>{t("report.prototypeNote", "Prototype note: full inline editing of each field will be enabled in the production build — for now, revisit the AI history chat to change answers.")}</p>}

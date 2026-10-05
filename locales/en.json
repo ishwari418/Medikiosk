@@ -235,7 +235,7 @@
       "personalHistory": "Personal History"
     },
     "chiefComplaint": "Hello Ishwari. What brings you to the hospital today?",
-    "onset": "I understand. When did the chest pain start?",
+    "onset": "When did the pain start?",
     "location": "Where exactly do you feel the pain?",
     "character": "How would you describe the pain?",
     "radiation": "Does the pain spread to your arm, shoulder, back or jaw?",
@@ -250,7 +250,7 @@
     "lifestyle": "How would you describe your sleep and diet lately?",
     "additional": "Anything else you'd like to add before we finish?",
     "mocks": {
-      "chiefComplaint": "I have chest pain since yesterday evening.",
+      "chiefComplaint": "I have had pain since yesterday evening.",
       "location": "Center of my chest, slightly to the left.",
       "modifying": "It feels worse when I climb stairs, better when I rest.",
       "pastMedical": "Mild hypertension, diagnosed last year.",
